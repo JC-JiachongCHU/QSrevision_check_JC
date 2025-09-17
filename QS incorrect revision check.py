@@ -425,7 +425,7 @@ plt.setp(ax.get_xticklabels(), rotation=90, ha="center")
 for i in range(avg.shape[0]):
     for j in range(avg.shape[1]):
         ax.text(j, i, f"{avg[i, j]:.2f}", 
-                ha="center", va="center", fontsize=4, color="black")
+                ha="center", va="center", fontsize=7, color="black")
 cbar.set_label(f"|1-ROX/X4_M4| for cycle 15-40")
 ax.set_title(f"{runname} - |1-ROX/X4_M4| for cycle 15-40")
 st.pyplot(fig, use_container_width=False)
@@ -443,7 +443,7 @@ plt.setp(ax.get_xticklabels(), rotation=90, ha="center")
 for i in range(std.shape[0]):
     for j in range(std.shape[1]):
         ax.text(j, i, f"{std[i, j]:.2f}", 
-                ha="center", va="center", fontsize=4, color="black")
+                ha="center", va="center", fontsize=7, color="black")
 cbar.set_label(f"Standard deviation (X4_M4) for first 10 cycles")
 ax.set_title(f"{runname} - std (X4_M4) for first 10 cycles")
 st.pyplot(fig, use_container_width=False)
