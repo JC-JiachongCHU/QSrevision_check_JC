@@ -108,7 +108,7 @@ st.write("Contact JIACHONG CHU for questions.")
 
 
 
-st.title("qPCR Data Importer")
+st.markdown("qPCR Data Importer")
 st.markdown("Please import ALL exported file from QuantStudio")
 uploaded_files = []
 uploaded_files = st.file_uploader("QuantStudio exported files",type=["csv", "xlsx", "xls"],accept_multiple_files=True)
