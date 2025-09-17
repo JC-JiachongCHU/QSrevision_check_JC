@@ -102,13 +102,12 @@ version = "v1.0.0"
 
 st.set_page_config(layout="wide")
 st.title("QS5 incorrect revision check")
-st.markdown(f"**Version:** {version}")
-# st.markdown(f"**Last updated:** {timestamp}")
-st.write("Contact JIACHONG CHU for questions.")
+st.caption(f"**Version:** {version} • Contact: Jiachong Chu")
+# st.write("Contact JIACHONG CHU for questions.")
 
 
 
-st.markdown("qPCR Data Importer")
+st.subheader("qPCR Data Importer")
 st.markdown("Please import ALL exported file from QuantStudio")
 uploaded_files = []
 uploaded_files = st.file_uploader("QuantStudio exported files",type=["csv", "xlsx", "xls"],accept_multiple_files=True)
