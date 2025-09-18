@@ -105,7 +105,7 @@ st.caption(f"Version {version} • Contact: Jiachong Chu")
 
 
 
-st.subheader("Data Upload")
+# st.subheader("Data Upload")
 st.markdown("Please import ALL exported file from QuantStudio")
 uploaded_files = []
 uploaded_files = st.file_uploader("QuantStudio exported files",type=["csv", "xlsx", "xls"],accept_multiple_files=True)
