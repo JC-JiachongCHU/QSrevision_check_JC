@@ -93,15 +93,17 @@ mpl.rcParams.update({
 })
 
 # === Here we GO! ===
-
-
-
-
+st.set_page_config(layout="wide")
 version = "v1.0.1"
 
-st.set_page_config(layout="wide")
-st.title("QS5 incorrect revision check")
-st.caption(f"Version {version} • Contact: Jiachong Chu")
+col_logo, col_title = st.columns([1, 6])
+with col_logo:
+    st.image("assets/thumbnail_image001.png")
+with col_title:
+    st.title("QS5 incorrect revision check")
+    st.caption(f"Version {version} • Contact: Jiachong Chu")
+
+
 
 
 
