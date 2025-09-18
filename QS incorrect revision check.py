@@ -11,7 +11,14 @@ import matplotlib as mpl
 from matplotlib.colors import PowerNorm
 import re
 from pathlib import Path
+from PIL import Image
 
+
+st.set_page_config(
+    page_title="QS5 incorrect revision check",
+    page_icon="assets/SpearLogo.png",    # or "🧪" or a URL
+    layout="wide",
+)
 
 @st.cache_data(show_spinner=False)
 def load_quantstudio(uploaded_file) -> pd.DataFrame:
