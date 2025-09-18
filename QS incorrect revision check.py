@@ -102,8 +102,9 @@ version = "v1.0.0"
 
 st.set_page_config(layout="wide")
 st.title("QS5 incorrect revision check")
-st.caption(f"**Version:** {version} • Contact: Jiachong Chu")
-# st.write("Contact JIACHONG CHU for questions.")
+st.markdown(f"**Version:** {version}")
+# st.markdown(f"**Last updated:** {timestamp}")
+st.write("Contact JIACHONG CHU for questions.")
 
 
 
@@ -324,6 +325,7 @@ mask = edited_grid.astype(bool)
 selected_rows = [r for r in mask.index if mask.loc[r].any()]
 selected_cols = [c for c in mask.columns if mask[c].any()]
 
+selected_wells = []
 FRC = np.full((len(selected_rows), len(selected_cols)), np.nan, dtype=float)
 avg = np.full_like(FRC, np.nan, dtype=float)
 std = np.full_like(FRC, np.nan, dtype=float)
@@ -333,7 +335,7 @@ for i, r in enumerate(selected_rows):
         if not bool(mask.loc[r, c]):
             continue  # not selected, leave NaN
         well = f"{r}{c}"
-
+        selected_wells.append(well)
         # Cq from Results -> FAM only
         sub_res = results[results["Well"].astype(str) == str(well)]
         sub_fam = sub_res[sub_res["Reporter"].astype(str) == "FAM"]
@@ -349,6 +351,31 @@ for i, r in enumerate(selected_rows):
         flag = np.abs(1.0 - rox_post / rox_y)
         std[i, j] = np.nanstd(rox_y[0:15])
         avg[i, j] = np.nanmean(flag[14:40])  # cycles 15–40
+
+# full-plate NaN matrices
+avg_full = np.full((len(rows), len(cols)), np.nan, dtype=float)
+std_full = np.full_like(avg_full, np.nan, dtype=float)
+
+# quick index maps
+row_ix = {r: i for i, r in enumerate(rows)}
+col_ix = {c: j for j, c in enumerate(cols)}
+
+# fill only selected wells; leave others NaN
+for r in rows:
+    for c in cols:
+        i, j = row_ix[r], col_ix[c]
+        well = f"{r}{c}"                     # if your files use A01, use f"{r}{c:02d}"
+
+        if well in selected_wells:
+            # pull rows for this well (guard empties)
+            sub_raw = df[df["Well"].astype(str) == well]
+            sub_mc  = df_m[df_m["Well"].astype(str) == well]
+            rox_y    = pd.to_numeric(sub_raw[rox_raw_ch], errors="coerce").to_numpy()
+            rox_post = pd.to_numeric(sub_mc[ROX_post_ch], errors="coerce").to_numpy()
+            std_full[i, j] = np.nanstd(rox_y[:15])
+            flag = np.abs(1.0 - rox_post / rox_y)
+            avg_full[i, j] = np.nanmean(flag[14:40])
+
 
 
 # ----- calculate the replicates
@@ -396,7 +423,7 @@ norm = mpl.colors.Normalize(vmin=0, vmax=0.5)
 cmap = plt.get_cmap("plasma_r")
 
 # Plot in Streamlit
-fig, ax = plt.subplots(figsize=(7,5))  # uses global FIGSIZE/DPI above
+fig, ax = plt.subplots(figsize=(6,4))  # uses global FIGSIZE/DPI above
 sc = ax.scatter(
     X_sorted, Y_sorted,
     s=28, alpha=0.9,
@@ -411,39 +438,44 @@ cbar.set_label("Pair min AVG of |1 − (ROX/X4_M4)| cycles 15–40")
 st.pyplot(fig, use_container_width=False)
 
 
+m = np.ma.masked_invalid(avg_full)
 fig, ax = plt.subplots(figsize=(14,6))  # uses global FIGSIZE/DPI above
-im = ax.imshow(np.ma.masked_invalid(avg), cmap="Reds", aspect="auto", vmin=0, vmax=0.7) # masks NaNs
-ax.set_xticks(np.arange(len(selected_cols)))
-ax.set_xticklabels(selected_cols)
-ax.set_yticks(np.arange(len(selected_rows)))
-ax.set_yticklabels(selected_rows)
+im = ax.imshow(np.ma.masked_invalid(m), cmap="Reds", aspect="auto", vmin=0, vmax=0.7) # masks NaNs
+ax.set_xticks(np.arange(len(cols)))
+ax.set_xticklabels(cols)
+ax.set_yticks(np.arange(len(rows)))
+ax.set_yticklabels(rows)
 ax.set_xlabel("Column")
 ax.set_ylabel("Row")
 cbar = plt.colorbar(im, ax=ax)
 plt.setp(ax.get_xticklabels(), rotation=90, ha="center")
-for i in range(avg.shape[0]):
-    for j in range(avg.shape[1]):
-        ax.text(j, i, f"{avg[i, j]:.2f}", 
-                ha="center", va="center", fontsize=7, color="black")
+for i in range(m.shape[0]):
+    for j in range(m.shape[1]):
+        if not m.mask[i, j]:                          # <- this is the key
+            ax.text(j, i, f"{m[i, j]:.2f}",
+                    ha="center", va="center", fontsize=5, color="black")
 cbar.set_label(f"|1-ROX/X4_M4| for cycle 15-40")
 ax.set_title(f"{runname} - |1-ROX/X4_M4| for cycle 15-40")
 st.pyplot(fig, use_container_width=False)
 
-fig, ax = plt.subplots(figsize=(14,6))
-im = ax.imshow(np.ma.masked_invalid(std), cmap="Reds", aspect="auto", vmin=0, vmax=30000) # masks NaNs
-ax.set_xticks(np.arange(len(selected_cols)))
-ax.set_xticklabels(selected_cols)
-ax.set_yticks(np.arange(len(selected_rows)))
-ax.set_yticklabels(selected_rows)
+m = np.ma.masked_invalid(std_full)
+fig, ax = plt.subplots(figsize=(14,6))  # uses global FIGSIZE/DPI above
+im = ax.imshow(np.ma.masked_invalid(m), cmap="Reds", aspect="auto", vmin=0, vmax=30000) # masks NaNs
+ax.set_xticks(np.arange(len(cols)))
+ax.set_xticklabels(cols)
+ax.set_yticks(np.arange(len(rows)))
+ax.set_yticklabels(rows)
 ax.set_xlabel("Column")
 ax.set_ylabel("Row")
 cbar = plt.colorbar(im, ax=ax)
 plt.setp(ax.get_xticklabels(), rotation=90, ha="center")
-for i in range(std.shape[0]):
-    for j in range(std.shape[1]):
-        ax.text(j, i, f"{std[i, j]:.2f}", 
-                ha="center", va="center", fontsize=7, color="black")
-cbar.set_label(f"Standard deviation (X4_M4) for first 10 cycles")
-ax.set_title(f"{runname} - std (X4_M4) for first 10 cycles")
+for i in range(m.shape[0]):
+    for j in range(m.shape[1]):
+        if not m.mask[i, j]:                          # <- this is the key
+            ax.text(j, i, f"{m[i, j]:.2f}",
+                    ha="center", va="center", fontsize=5, color="black")
+cbar.set_label(f"Standard deviation (X4_M4) for first 15 cycles")
+ax.set_title(f"{runname} - std (X4_M4) for first 15 cycles")
 st.pyplot(fig, use_container_width=False)
+
 
