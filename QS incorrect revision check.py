@@ -101,7 +101,7 @@ mpl.rcParams.update({
 
 # === Here we GO! ===
 st.set_page_config(layout="wide")
-version = "v1.0.1"
+version = "demo v1.0.1"
 
 col_logo, col_title = st.columns([1, 6])
 with col_logo:
