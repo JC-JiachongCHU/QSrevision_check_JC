@@ -97,7 +97,7 @@ mpl.rcParams.update({
 
 
 
-version = "v1.0.0"
+version = "v1.0.1"
 
 st.set_page_config(layout="wide")
 st.title("QS5 incorrect revision check")
