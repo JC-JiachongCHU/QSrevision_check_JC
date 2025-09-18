@@ -97,14 +97,11 @@ mpl.rcParams.update({
 
 
 
-# timestamp = datetime.datetime.now().strftime("%Y/%m/%d %H:%M")
 version = "v1.0.0"
 
 st.set_page_config(layout="wide")
 st.title("QS5 incorrect revision check")
-st.markdown(f"**Version:** {version}")
-# st.markdown(f"**Last updated:** {timestamp}")
-st.write("Contact JIACHONG CHU for questions.")
+st.caption(f"Version {version} • Contact: Jiachong Chu")
 
 
 
