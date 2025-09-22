@@ -372,20 +372,26 @@ combined = detect_combined_qs_workbook_with_headers(uploaded_files)
 if combined:
     combined_file, sheetmap = combined
 
-    # Read sheets with discovered header rows
-    results = pd.read_excel(combined_file, sheet_name=sheetmap["results"][0],
-                            header=sheetmap["results"][1])
-    df      = pd.read_excel(combined_file, sheet_name=sheetmap["raw"][0],
-                            header=sheetmap["raw"][1])
-    df_m    = pd.read_excel(combined_file, sheet_name=sheetmap["multi"][0],
-                            header=sheetmap["multi"][1])
+    # IMPORTANT: reset file pointer before each read
+    combined_file.seek(0)
+    results = pd.read_excel(
+        combined_file, sheet_name=sheetmap["results"][0], header=sheetmap["results"][1]
+    )
+    combined_file.seek(0)
+    df = pd.read_excel(
+        combined_file, sheet_name=sheetmap["raw"][0], header=sheetmap["raw"][1]
+    )
+    combined_file.seek(0)
+    df_m = pd.read_excel(
+        combined_file, sheet_name=sheetmap["multi"][0], header=sheetmap["multi"][1]
+    )
 
     # Normalize names so later code works uniformly
     _standardize_cols_inplace(results)
     _standardize_cols_inplace(df)
     _standardize_cols_inplace(df_m)
 
-    runname = Path(combined_file.name).stem  # <-- keep this (don’t overwrite)
+    runname = Path(combined_file.name).stem
     st.success(
         f"Loaded combined workbook: **{combined_file.name}** "
         f"(Results='{sheetmap['results'][0]}'@{sheetmap['results'][1]}, "
@@ -399,7 +405,7 @@ else:
         name = f.name.lower()
         if "results" in name and all(k not in name for k in ["replicate","sample","rq"]):
             results_file = f
-        elif "raw data" in name:
+        elif ("raw data" in name) or ("raw_data" in name):  # allow underscore
             raw_file = f
         elif "multicomponent" in name:
             multicomponent_file = f
@@ -414,7 +420,7 @@ else:
         st.error("Missing file(s): " + ", ".join(missing))
         st.stop()
 
-    # Load + standardize
+    # Load + standardize (your cached loader)
     results = load_quantstudio(results_file)
     df      = load_quantstudio(raw_file)
     df_m    = load_quantstudio(multicomponent_file)
