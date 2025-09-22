@@ -27,12 +27,13 @@ def load_quantstudio(uploaded_file) -> pd.DataFrame:
     Removes comment lines for CSV; for Excel, reads the first sheet and
     auto-recovers header if needed.
     """
-    from pathlib import Path
 
     suffix = Path(uploaded_file.name).suffix.lower()
 
     def _standardize_cols_inplace(df: pd.DataFrame) -> pd.DataFrame:
-    """Rename common QS headers to canonical names ('Well','Cycle','Stage','Step','Reporter','Cq')."""
+    """
+    Rename common QS headers to canonical names ('Well','Cycle','Stage','Step','Reporter','Cq').
+    """
     rename = {}
     for c in df.columns:
         cl = str(c).strip().lower()
