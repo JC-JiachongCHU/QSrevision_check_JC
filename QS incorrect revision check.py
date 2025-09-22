@@ -17,6 +17,10 @@ from PIL import Image
 version = "demo v1.0.2"
 
 @st.cache_data(show_spinner=False)
+
+
+
+
 def load_quantstudio(uploaded_file) -> pd.DataFrame:
     """
     Read QuantStudio exports from CSV or Excel (xlsx/xls) and standardize columns.
@@ -27,19 +31,52 @@ def load_quantstudio(uploaded_file) -> pd.DataFrame:
 
     suffix = Path(uploaded_file.name).suffix.lower()
 
-    def _standardize_cols(df: pd.DataFrame) -> pd.DataFrame:
-        rename = {}
-        for c in df.columns:
-            cl = str(c).lower().strip()
-            if cl == "well position": rename[c] = "Well"
-            elif cl == "cycle number": rename[c] = "Cycle"
-            elif cl == "well":         rename[c] = "Index"  # numeric index, not A1 label
-            elif cl == "stage number": rename[c] = "Stage"
-            elif cl == "step number":  rename[c] = "Step"
-        if rename:
-            df = df.rename(columns=rename)
-        if "Index" in df.columns and "Well" in df.columns:
-            df = df.drop(columns=["Index"])
+    def _standardize_cols_inplace(df: pd.DataFrame) -> pd.DataFrame:
+    """Rename common QS headers to canonical names ('Well','Cycle','Stage','Step','Reporter','Cq')."""
+    rename = {}
+    for c in df.columns:
+        cl = str(c).strip().lower()
+        if cl == "well position": rename[c] = "Well"
+        elif cl == "cycle number": rename[c] = "Cycle"
+        elif cl == "stage number": rename[c] = "Stage"
+        elif cl == "step number":  rename[c] = "Step"
+        elif cl == "ct":           rename[c] = "Cq"       # normalize Ct → Cq
+        elif cl == "reporter":     rename[c] = "Reporter" # unify capitalization
+        elif cl == "well":         rename[c] = "Well"
+    if rename:
+        df.rename(columns=rename, inplace=True)
+
+    # If both "Index" and "Well" exist, drop numeric Index
+    if "Index" in df.columns and "Well" in df.columns:
+        df.drop(columns=["Index"], inplace=True)
+
+    return df
+
+
+    def _sanitize_after_read(df: pd.DataFrame) -> pd.DataFrame:
+        """Make columns unique, reset index, and canonicalize Well IDs (A1 style)."""
+        # 1) ensure unique columns
+        if df.columns.duplicated().any():
+            df = df.loc[:, ~df.columns.duplicated()]
+    
+        # 2) clean RangeIndex
+        df = df.reset_index(drop=True)
+    
+        # 3) standardize headers
+        _standardize_cols_inplace(df)
+    
+        # 4) canonicalize Well (A1 not A01; uppercase)
+        if "Well" in df.columns:
+            def _canon_well(x):
+                s = str(x).strip().upper()
+                # match like A01, a1, A 01 → A1
+                m = re.match(r"^([A-Z]+)\s*0*([0-9]+)$", s)
+                if m:
+                    row, col = m.groups()
+                    return f"{row}{int(col)}"
+                return s
+            df["Well"] = df["Well"].astype(str).map(_canon_well)
+    
         return df
 
     if suffix == ".csv":
@@ -75,7 +112,7 @@ def load_quantstudio(uploaded_file) -> pd.DataFrame:
             uploaded_file.seek(0)
             if header_row is not None:
                 df = pd.read_excel(uploaded_file, sheet_name=0, header=header_row)
-        return _standardize_cols(df)
+        return _sanitize_after_read(df)
 
     else:
         raise ValueError(f"Unsupported file type: {suffix}")
@@ -168,33 +205,8 @@ def _standardize_cols_inplace(df: pd.DataFrame) -> pd.DataFrame:
     if "Index" in df.columns and "Well" in df.columns:
         df.drop(columns=["Index"], inplace=True)
     return df
-def _dedupe_cols_inplace(df: pd.DataFrame) -> pd.DataFrame:
-    """Make column labels unique by appending .1, .2, ..."""
-    seen = {}
-    new_cols = []
-    for c in map(str, df.columns):
-        if c in seen:
-            seen[c] += 1
-            new_cols.append(f"{c}.{seen[c]}")
-        else:
-            seen[c] = 0
-            new_cols.append(c)
-    df.columns = new_cols
-    return df
 
-def _find_col(df: pd.DataFrame, candidates: set[str]) -> str | None:
-    """Return the first matching column (case/space-insensitive)."""
-    # exact (normalized)
-    norm = {str(c).strip().lower(): c for c in df.columns}
-    for k in candidates:
-        if k in norm:
-            return norm[k]
-    # try base name before '.1' suffix, etc.
-    for c in df.columns:
-        base = str(c).split('.', 1)[0].strip().lower()
-        if base in candidates:
-            return c
-    return None
+
 
 # === Here we GO! ===
 
@@ -412,7 +424,9 @@ if combined:
     combined_file.seek(0); df      = pd.read_excel(combined_file, sheet_name=sheetmap["raw"][0],     header=sheetmap["raw"][1])
     combined_file.seek(0); df_m    = pd.read_excel(combined_file, sheet_name=sheetmap["multi"][0],   header=sheetmap["multi"][1])
 
-    results, df, df_m = _std(results), _std(df), _std(df_m)
+    results = _sanitize_after_read(results)
+    df      = _sanitize_after_read(df)
+    df_m    = _sanitize_after_read(df_m)
     runname = Path(combined_file.name).stem
     st.success(
         f"Loaded combined workbook: **{combined_file.name}** "
@@ -420,11 +434,6 @@ if combined:
         f"Raw='{sheetmap['raw'][0]}'@{sheetmap['raw'][1]}, "
         f"Multi='{sheetmap['multi'][0]}'@{sheetmap['multi'][1]})."
     )
-        # already calling _standardize_cols_inplace(...)
-    _standardize_cols_inplace(results); _standardize_cols_inplace(df); _standardize_cols_inplace(df_m)
-    
-    # NEW: ensure unique columns
-    _dedupe_cols_inplace(results); _dedupe_cols_inplace(df); _dedupe_cols_inplace(df_m)
 
 else:
     # 2) Best-effort combined: if exactly one XLSX is uploaded, assume all-in-one and try sheet names w/ header=24
@@ -481,23 +490,15 @@ else:
         results = load_quantstudio(results_file)
         df      = load_quantstudio(raw_file)
         df_m    = load_quantstudio(multicomponent_file)
+        results = _sanitize_after_read(results)
+        df      = _sanitize_after_read(df)
+        df_m    = _sanitize_after_read(df_m)
         runname = Path(raw_file.name).stem.split('_Raw Data', 1)[0]
         st.success("Loaded separate files.")
 
 
 # pull the FAM Cq of the reference well
-well_col     = _find_col(results, {"well"})
-reporter_col = _find_col(results, {"reporter"})
-cq_col       = _find_col(results, {"cq", "ct"})
 
-missing_cols = [name for name, col in
-                (("Well", well_col), ("Reporter", reporter_col), ("Cq/Ct", cq_col))
-                if col is None]
-if missing_cols:
-    st.error("Results sheet missing columns: " + ", ".join(missing_cols))
-    st.stop()
-
-# pull the FAM Cq of the reference well
 sub_ref = results[results[well_col].astype(str) == str(refwell)]
 sub_ref_fam = sub_ref[sub_ref[reporter_col].astype(str).str.upper() == "FAM"]
 ref_vals = pd.to_numeric(sub_ref_fam[cq_col], errors="coerce").dropna().to_numpy()
