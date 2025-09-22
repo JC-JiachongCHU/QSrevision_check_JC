@@ -22,18 +22,18 @@ version = "demo v1.0.2"
 
 
 def load_quantstudio(uploaded_file) -> pd.DataFrame:
-    """
-    Read QuantStudio exports from CSV or Excel (xlsx/xls) and standardize columns.
-    Removes comment lines for CSV; for Excel, reads the first sheet and
-    auto-recovers header if needed.
-    """
+    # """
+    # Read QuantStudio exports from CSV or Excel (xlsx/xls) and standardize columns.
+    # Removes comment lines for CSV; for Excel, reads the first sheet and
+    # auto-recovers header if needed.
+    # """
 
     suffix = Path(uploaded_file.name).suffix.lower()
 
     def _standardize_cols_inplace(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Rename common QS headers to canonical names ('Well','Cycle','Stage','Step','Reporter','Cq').
-    """
+    # """
+    # Rename common QS headers to canonical names ('Well','Cycle','Stage','Step','Reporter','Cq').
+    # """
     rename = {}
     for c in df.columns:
         cl = str(c).strip().lower()
@@ -55,7 +55,7 @@ def load_quantstudio(uploaded_file) -> pd.DataFrame:
 
 
     def _sanitize_after_read(df: pd.DataFrame) -> pd.DataFrame:
-        """Make columns unique, reset index, and canonicalize Well IDs (A1 style)."""
+        # """Make columns unique, reset index, and canonicalize Well IDs (A1 style)."""
         # 1) ensure unique columns
         if df.columns.duplicated().any():
             df = df.loc[:, ~df.columns.duplicated()]
@@ -137,10 +137,10 @@ mpl.rcParams.update({
 
 # ---- let me see see what file you upload ----
 def detect_combined_qs_workbook_with_headers(files: list):
-    """
-    Return (file, {'results':(sheet, header_idx), 'raw':(...), 'multi':(...)}), or None.
-    Robust to Streamlit UploadedFile by resetting file pointer before each read.
-    """
+    # """
+    # Return (file, {'results':(sheet, header_idx), 'raw':(...), 'multi':(...)}), or None.
+    # Robust to Streamlit UploadedFile by resetting file pointer before each read.
+    # """
     from pathlib import Path
     xl_files = [f for f in files if Path(f.name).suffix.lower() in (".xlsx", ".xls")]
     if not xl_files:
