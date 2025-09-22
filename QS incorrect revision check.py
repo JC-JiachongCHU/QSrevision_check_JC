@@ -14,70 +14,32 @@ from pathlib import Path
 from PIL import Image
 
 
-version = "demo v1.0.2"
+
 
 @st.cache_data(show_spinner=False)
-
-
-
-
 def load_quantstudio(uploaded_file) -> pd.DataFrame:
-    # """
-    # Read QuantStudio exports from CSV or Excel (xlsx/xls) and standardize columns.
-    # Removes comment lines for CSV; for Excel, reads the first sheet and
-    # auto-recovers header if needed.
-    # """
+    """
+    Read QuantStudio exports from CSV or Excel (xlsx/xls) and standardize columns.
+    Removes comment lines for CSV; for Excel, reads the first sheet and
+    auto-recovers header if needed.
+    """
+    from pathlib import Path
 
     suffix = Path(uploaded_file.name).suffix.lower()
 
-    def _standardize_cols_inplace(df: pd.DataFrame) -> pd.DataFrame:
-    # """
-    # Rename common QS headers to canonical names ('Well','Cycle','Stage','Step','Reporter','Cq').
-    # """
+    def _standardize_cols(df: pd.DataFrame) -> pd.DataFrame:
         rename = {}
         for c in df.columns:
-            cl = str(c).strip().lower()
+            cl = str(c).lower().strip()
             if cl == "well position": rename[c] = "Well"
             elif cl == "cycle number": rename[c] = "Cycle"
+            elif cl == "well":         rename[c] = "Index"  # numeric index, not A1 label
             elif cl == "stage number": rename[c] = "Stage"
             elif cl == "step number":  rename[c] = "Step"
-            elif cl == "ct":           rename[c] = "Cq"       # normalize Ct → Cq
-            elif cl == "reporter":     rename[c] = "Reporter" # unify capitalization
-            elif cl == "well":         rename[c] = "Well"
         if rename:
-            df.rename(columns=rename, inplace=True)
-    
-        # If both "Index" and "Well" exist, drop numeric Index
+            df = df.rename(columns=rename)
         if "Index" in df.columns and "Well" in df.columns:
-            df.drop(columns=["Index"], inplace=True)
-    
-        return df
-
-
-    def _sanitize_after_read(df: pd.DataFrame) -> pd.DataFrame:
-        # """Make columns unique, reset index, and canonicalize Well IDs (A1 style)."""
-        # 1) ensure unique columns
-        if df.columns.duplicated().any():
-            df = df.loc[:, ~df.columns.duplicated()]
-    
-        # 2) clean RangeIndex
-        df = df.reset_index(drop=True)
-    
-        # 3) standardize headers
-        _standardize_cols_inplace(df)
-    
-        # 4) canonicalize Well (A1 not A01; uppercase)
-        if "Well" in df.columns:
-            def _canon_well(x):
-                s = str(x).strip().upper()
-                # match like A01, a1, A 01 → A1
-                m = re.match(r"^([A-Z]+)\s*0*([0-9]+)$", s)
-                if m:
-                    row, col = m.groups()
-                    return f"{row}{int(col)}"
-                return s
-            df["Well"] = df["Well"].astype(str).map(_canon_well)
-    
+            df = df.drop(columns=["Index"])
         return df
 
     if suffix == ".csv":
@@ -113,7 +75,7 @@ def load_quantstudio(uploaded_file) -> pd.DataFrame:
             uploaded_file.seek(0)
             if header_row is not None:
                 df = pd.read_excel(uploaded_file, sheet_name=0, header=header_row)
-        return _sanitize_after_read(df)
+        return _standardize_cols(df)
 
     else:
         raise ValueError(f"Unsupported file type: {suffix}")
@@ -133,90 +95,13 @@ mpl.rcParams.update({
     "legend.fontsize": 6,
 })
 
-
-
-# ---- let me see see what file you upload ----
-def detect_combined_qs_workbook_with_headers(files: list):
-    # """
-    # Return (file, {'results':(sheet, header_idx), 'raw':(...), 'multi':(...)}), or None.
-    # Robust to Streamlit UploadedFile by resetting file pointer before each read.
-    # """
-    from pathlib import Path
-    xl_files = [f for f in files if Path(f.name).suffix.lower() in (".xlsx", ".xls")]
-    if not xl_files:
-        return None
-
-    # tokens for header detection / classification
-    KEY_ROWS   = 500  # scan enough rows to be safe for QS banners
-    def _scan_header_row(xlsx_file, sheet_name, max_rows=KEY_ROWS):
-        xlsx_file.seek(0)
-        tmp = pd.read_excel(xlsx_file, sheet_name=sheet_name, header=None, nrows=max_rows)
-        for i in range(len(tmp)):
-            row = tmp.iloc[i].astype(str).str.lower().str.strip().tolist()
-            if any(tok in row for tok in ["well position", "cycle number", "reporter", "fam", "rox", "x1_m1", "x4_m4"]):
-                return i
-        # hard default for QS all-in-one exports that often start tables at row 24 (0-indexed)
-        return 24
-
-    def _classify_by_cols(cols: list[str]) -> str | None:
-        s = {c.strip().lower() for c in cols}
-        has_well_cycle = {"well position", "cycle number"} & s
-        has_raw_ch     = any(x.startswith("x") and "_m" in x for x in s)  # X1_M1 … X5_M5
-        has_multi_dyes = {"fam", "rox"} & s
-        if ("reporter" in s) or ({ "cq","ct"} & s):
-            return "results"
-        if has_well_cycle and has_raw_ch:
-            return "raw"
-        if has_well_cycle and has_multi_dyes:
-            return "multi"
-        return None
-
-    for f in xl_files:
-        try:
-            f.seek(0)
-            xf = pd.ExcelFile(f)
-            found = {}
-            for sh in xf.sheet_names:
-                hdr = _scan_header_row(f, sh)
-                # read one row with this header to get normalized column names
-                f.seek(0)
-                df_try = pd.read_excel(f, sheet_name=sh, header=hdr, nrows=1)
-                kind = _classify_by_cols([str(c) for c in df_try.columns])
-                if kind and kind not in found:
-                    found[kind] = (sh, hdr)
-            if {"results", "raw", "multi"}.issubset(found):
-                return f, found
-        except Exception:
-            continue
-    return None
-
-
-def _standardize_cols_inplace(df: pd.DataFrame) -> pd.DataFrame:
-    rename = {}
-    for c in df.columns:
-        cl = str(c).lower().strip()
-        if cl == "well position": rename[c] = "Well"
-        elif cl == "cycle number": rename[c] = "Cycle"
-        elif cl == "stage number": rename[c] = "Stage"
-        elif cl == "step number":  rename[c] = "Step"
-        # Results sheet commonly already has 'Reporter' and 'Cq'
-        # Multicomponent usually already has 'FAM','ROX'
-    if rename:
-        df.rename(columns=rename, inplace=True)
-    if "Index" in df.columns and "Well" in df.columns:
-        df.drop(columns=["Index"], inplace=True)
-    return df
-
-
-
 # === Here we GO! ===
-
 st.set_page_config(
     page_title="QuantStudio incorrect revision check",
     page_icon="assets/SpearLogo.png",    # or "🧪" or a URL
     layout="wide",
 )
-
+version = "demo v1.0.1"
 
 col_logo, col_title = st.columns([1, 6])
 with col_logo:
@@ -230,9 +115,9 @@ with col_title:
 
 
 # st.subheader("Data Upload")
-st.markdown("Please import ALL exported file from QuantStudio Design and Analysis")
+st.markdown("Please import ALL exported file from QuantStudio")
 uploaded_files = []
-uploaded_files = st.file_uploader("QuantStudio Design and Analysis exported files",type=["csv", "xlsx", "xls"],accept_multiple_files=True)
+uploaded_files = st.file_uploader("QuantStudio exported files",type=["csv", "xlsx", "xls"],accept_multiple_files=True)
 
 
 def make_plate_df(plate_format: str) -> pd.DataFrame:
@@ -406,104 +291,41 @@ refwell = st.selectbox(
 )
 
 
-# --- PICK INPUTS: combined wins; else require the three separate files ---
-results_file = raw_file = multicomponent_file = None
+results_file = None
+raw_file = None
+multicomponent_file = None
 
-# 0) Show what we got (helps debugging)
-st.caption("Uploaded files: " + ", ".join(f.name for f in uploaded_files) if uploaded_files else "none")
+for f in uploaded_files:  # uploaded_files comes from st.file_uploader
+    name = f.name.lower()
+    if "results" in name and "replicate" not in name and "sample" not in name and "rq" not in name:
+        results_file = f
+    elif "raw data" in name:
+        raw_file = f
+    elif "multicomponent" in name:
+        multicomponent_file = f
 
-# 1) Try classifier-based combined detection
-combined = detect_combined_qs_workbook_with_headers(uploaded_files)
+if not results_file:
+    st.error("No Results file found (expected something like *_Results_*.csv)")
+if not raw_file:
+    st.error("No Raw Data file found (expected something like *_Raw Data_*.csv)")
+if not multicomponent_file:
+    st.error("No Multicomponent file found (expected something like *_Multicomponent_*.csv)")
 
-def _std(df):  # inline normalizer
-    _standardize_cols_inplace(df); return df
+runname = Path(raw_file.name).stem.split('_Raw Data', 1)[0]
 
-if combined:
-    combined_file, sheetmap = combined
+if results_file and raw_file and multicomponent_file:
+    results = load_quantstudio(results_file)
+    df = load_quantstudio(raw_file)
+    df_m = load_quantstudio(multicomponent_file)
 
-    combined_file.seek(0); results = pd.read_excel(combined_file, sheet_name=sheetmap["results"][0], header=sheetmap["results"][1])
-    combined_file.seek(0); df      = pd.read_excel(combined_file, sheet_name=sheetmap["raw"][0],     header=sheetmap["raw"][1])
-    combined_file.seek(0); df_m    = pd.read_excel(combined_file, sheet_name=sheetmap["multi"][0],   header=sheetmap["multi"][1])
-
-    results = _sanitize_after_read(results)
-    df      = _sanitize_after_read(df)
-    df_m    = _sanitize_after_read(df_m)
-    runname = Path(combined_file.name).stem
-    st.success(
-        f"Loaded combined workbook: **{combined_file.name}** "
-        f"(Results='{sheetmap['results'][0]}'@{sheetmap['results'][1]}, "
-        f"Raw='{sheetmap['raw'][0]}'@{sheetmap['raw'][1]}, "
-        f"Multi='{sheetmap['multi'][0]}'@{sheetmap['multi'][1]})."
-    )
-
-else:
-    # 2) Best-effort combined: if exactly one XLSX is uploaded, assume all-in-one and try sheet names w/ header=24
-    xl_only = [f for f in uploaded_files if Path(f.name).suffix.lower() in (".xlsx", ".xls")]
-    if len(xl_only) == 1:
-        f = xl_only[0]
-        try:
-            f.seek(0); xf = pd.ExcelFile(f)
-            # Guess sheet names and header row
-            # (Users can rename, but QS defaults are usually these.)
-            guess_map = {
-                "results": next((s for s in xf.sheet_names if s.lower() == "results"), None),
-                "raw":     next((s for s in xf.sheet_names if s.lower() in ("raw data","raw_data","rawdata")), None),
-                "multi":   next((s for s in xf.sheet_names if s.lower() in ("multicomponent","multi component","multicomponents")), None),
-            }
-            header_guess = 24
-
-            if all(guess_map.values()):
-                f.seek(0); results = pd.read_excel(f, sheet_name=guess_map["results"], header=header_guess)
-                f.seek(0); df      = pd.read_excel(f, sheet_name=guess_map["raw"],     header=header_guess)
-                f.seek(0); df_m    = pd.read_excel(f, sheet_name=guess_map["multi"],   header=header_guess)
-
-                results, df, df_m = _std(results), _std(df), _std(df_m)
-                runname = Path(f.name).stem
-                st.success(
-                    f"Loaded combined workbook (best-effort): **{f.name}** "
-                    f"(Results='{guess_map['results']}', Raw='{guess_map['raw']}', Multi='{guess_map['multi']}', header={header_guess})."
-                )
-            else:
-                raise RuntimeError("Could not guess all three sheet names.")
-        except Exception as e:
-            st.info(f"Combined auto-detect failed: {e}")
-
-    # 3) If still not loaded, use separate files by filename hints
-    if 'results' not in locals() or 'df' not in locals() or 'df_m' not in locals():
-        for f in uploaded_files:
-            name = f.name.lower()
-            if "results" in name and all(k not in name for k in ["replicate","sample","rq"]):
-                results_file = f
-            elif ("raw data" in name) or ("raw_data" in name):
-                raw_file = f
-            elif "multicomponent" in name:
-                multicomponent_file = f
-
-        missing = []
-        if not results_file:        missing.append("Results (*_Results_*.csv/.xlsx)")
-        if not raw_file:            missing.append("Raw Data (*_Raw Data_*.csv/.xlsx)")
-        if not multicomponent_file: missing.append("Multicomponent (*_Multicomponent_*.csv/.xlsx)")
-
-        if missing:
-            st.error("Missing file(s): " + ", ".join(missing))
-            st.stop()
-
-        results = load_quantstudio(results_file)
-        df      = load_quantstudio(raw_file)
-        df_m    = load_quantstudio(multicomponent_file)
-        results = _sanitize_after_read(results)
-        df      = _sanitize_after_read(df)
-        df_m    = _sanitize_after_read(df_m)
-        runname = Path(raw_file.name).stem.split('_Raw Data', 1)[0]
-        st.success("Loaded separate files.")
-
+    st.success("All key files loaded successfully!")
 
 # pull the FAM Cq of the reference well
-
-sub_ref = results[results[well_col].astype(str) == str(refwell)]
-sub_ref_fam = sub_ref[sub_ref[reporter_col].astype(str).str.upper() == "FAM"]
-ref_vals = pd.to_numeric(sub_ref_fam[cq_col], errors="coerce").dropna().to_numpy()
+sub_ref = results[results["Well"].astype(str) == str(refwell)]
+sub_ref_fam = sub_ref[sub_ref["Reporter"].astype(str) == "FAM"]
+ref_vals = pd.to_numeric(sub_ref_fam["Cq"], errors="coerce").dropna().to_numpy()
 ref_cq = float(ref_vals[0]) if ref_vals.size else np.nan
+
 
 mask = edited_grid.astype(bool)
 selected_rows = [r for r in mask.index if mask.loc[r].any()]
@@ -618,15 +440,14 @@ ax.set_xlabel("Mean FRC")
 ax.set_ylabel("FRC CV%")
 ax.set_title(f"{runname} · Rep style: {replicate_style}")
 cbar = plt.colorbar(sc, ax=ax)
-cbar.set_label("Pair max AVG of |1 − (ROX/X4_M4)| cycles 15–40")
+cbar.set_label("Pair min AVG of |1 − (ROX/X4_M4)| cycles 15–40")
 st.pyplot(fig, use_container_width=False)
 
-vmin1 = st.number_input("Set vmin", value=0.0, step=0.1)
-vmax1 = st.number_input("Set vmax", value=0.5, step=0.1)
-
+vmin = st.number_input("Set vmin", value=0.0, step=0.1)
+vmax = st.number_input("Set vmax", value=0.5, step=0.1)
 m = np.ma.masked_invalid(avg_full)
 fig, ax = plt.subplots(figsize=(14,6))  # uses global FIGSIZE/DPI above
-im = ax.imshow(np.ma.masked_invalid(m), cmap="Reds", aspect="auto", vmin=vmin1, vmax=vmax1) # masks NaNs
+im = ax.imshow(np.ma.masked_invalid(m), cmap="Reds", aspect="auto", vmin=vmin, vmax=vmax) # masks NaNs
 ax.set_xticks(np.arange(len(cols)))
 ax.set_xticklabels(cols)
 ax.set_yticks(np.arange(len(rows)))
@@ -644,14 +465,11 @@ cbar.set_label(f"|1-ROX/X4_M4| for cycle 15-40")
 ax.set_title(f"{runname} - |1-ROX/X4_M4| for cycle 15-40")
 st.pyplot(fig, use_container_width=False)
 
-
-
-vmin2 = st.number_input("Set vmin", value=0, step=100)
-vmax2 = st.number_input("Set vmax", value=30000, step=1000)
-
+vmin = st.number_input("Set vmin", value=0, step=100)
+vmax = st.number_input("Set vmax", value=6000, step=100)
 m = np.ma.masked_invalid(std_full)
 fig, ax = plt.subplots(figsize=(14,6))  # uses global FIGSIZE/DPI above
-im = ax.imshow(np.ma.masked_invalid(m), cmap="Reds", aspect="auto", vmin=vmin2, vmax=vmax2) # masks NaNs
+im = ax.imshow(np.ma.masked_invalid(m), cmap="Reds", aspect="auto", vmin=vmin, vmax=vmax) # masks NaNs
 ax.set_xticks(np.arange(len(cols)))
 ax.set_xticklabels(cols)
 ax.set_yticks(np.arange(len(rows)))
@@ -668,5 +486,3 @@ for i in range(m.shape[0]):
 cbar.set_label(f"Standard deviation (X4_M4) for first 15 cycles")
 ax.set_title(f"{runname} - std (X4_M4) for first 15 cycles")
 st.pyplot(fig, use_container_width=False)
-
-
