@@ -98,49 +98,60 @@ mpl.rcParams.update({
 
 
 # ---- let me see see what file you upload ----
-def _scan_header_row(xlsx_file, sheet_name, max_rows=200):
-    """Return the header row index for a QS sheet by scanning for known tokens."""
-    tmp = pd.read_excel(xlsx_file, sheet_name=sheet_name, header=None, nrows=max_rows)
-    for i in range(len(tmp)):
-        row = tmp.iloc[i].astype(str).str.lower().str.strip().tolist()
-        if any(tok in row for tok in ["well position", "cycle number", "reporter", "fam", "rox", "x1_m1", "x4_m4"]):
-            return i
-    return None
-
-def _classify_by_cols(cols: list[str]) -> str | None:
-    s = {c.strip().lower() for c in cols}
-    if {"well position","cycle number"} & s and any(x.startswith("x") and "_m" in x for x in s):
-        return "raw"
-    if {"well position","cycle number"} & s and ({"fam","rox"} & s):
-        return "multi"
-    if {"well position","reporter"} & s or {"cq","ct"} & s:
-        return "results"
-    return None
-
 def detect_combined_qs_workbook_with_headers(files: list):
     """
     Return (file, {'results':(sheet, header_idx), 'raw':(...), 'multi':(...)}), or None.
+    Robust to Streamlit UploadedFile by resetting file pointer before each read.
     """
     from pathlib import Path
-    xl_files = [f for f in files if Path(f.name).suffix.lower() in (".xlsx",".xls")]
+    xl_files = [f for f in files if Path(f.name).suffix.lower() in (".xlsx", ".xls")]
+    if not xl_files:
+        return None
+
+    # tokens for header detection / classification
+    KEY_ROWS   = 500  # scan enough rows to be safe for QS banners
+    def _scan_header_row(xlsx_file, sheet_name, max_rows=KEY_ROWS):
+        xlsx_file.seek(0)
+        tmp = pd.read_excel(xlsx_file, sheet_name=sheet_name, header=None, nrows=max_rows)
+        for i in range(len(tmp)):
+            row = tmp.iloc[i].astype(str).str.lower().str.strip().tolist()
+            if any(tok in row for tok in ["well position", "cycle number", "reporter", "fam", "rox", "x1_m1", "x4_m4"]):
+                return i
+        # hard default for QS all-in-one exports that often start tables at row 24 (0-indexed)
+        return 24
+
+    def _classify_by_cols(cols: list[str]) -> str | None:
+        s = {c.strip().lower() for c in cols}
+        has_well_cycle = {"well position", "cycle number"} & s
+        has_raw_ch     = any(x.startswith("x") and "_m" in x for x in s)  # X1_M1 … X5_M5
+        has_multi_dyes = {"fam", "rox"} & s
+        if ("reporter" in s) or ({ "cq","ct"} & s):
+            return "results"
+        if has_well_cycle and has_raw_ch:
+            return "raw"
+        if has_well_cycle and has_multi_dyes:
+            return "multi"
+        return None
+
     for f in xl_files:
         try:
+            f.seek(0)
             xf = pd.ExcelFile(f)
             found = {}
             for sh in xf.sheet_names:
-                hdr = _scan_header_row(f, sh, max_rows=300)
-                if hdr is None:
-                    continue
-                # read one row to get column names with this header
+                hdr = _scan_header_row(f, sh)
+                # read one row with this header to get normalized column names
+                f.seek(0)
                 df_try = pd.read_excel(f, sheet_name=sh, header=hdr, nrows=1)
                 kind = _classify_by_cols([str(c) for c in df_try.columns])
                 if kind and kind not in found:
                     found[kind] = (sh, hdr)
-            if {"results","raw","multi"}.issubset(found.keys()):
+            if {"results", "raw", "multi"}.issubset(found):
                 return f, found
         except Exception:
             continue
     return None
+
 
 def _standardize_cols_inplace(df: pd.DataFrame) -> pd.DataFrame:
     rename = {}
