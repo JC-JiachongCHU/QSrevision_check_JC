@@ -443,10 +443,12 @@ cbar = plt.colorbar(sc, ax=ax)
 cbar.set_label("Pair min AVG of |1 − (ROX/X4_M4)| cycles 15–40")
 st.pyplot(fig, use_container_width=False)
 
+vmin1 = st.number_input("Set vmin", value=0, step=0.1)
+vmax1 = st.number_input("Set vmax", value=0.5, step=0.1)
 
 m = np.ma.masked_invalid(avg_full)
 fig, ax = plt.subplots(figsize=(14,6))  # uses global FIGSIZE/DPI above
-im = ax.imshow(np.ma.masked_invalid(m), cmap="Reds", aspect="auto", vmin=0, vmax=0.7) # masks NaNs
+im = ax.imshow(np.ma.masked_invalid(m), cmap="Reds", aspect="auto", vmin=vmin1, vmax=vmax1) # masks NaNs
 ax.set_xticks(np.arange(len(cols)))
 ax.set_xticklabels(cols)
 ax.set_yticks(np.arange(len(rows)))
@@ -464,9 +466,14 @@ cbar.set_label(f"|1-ROX/X4_M4| for cycle 15-40")
 ax.set_title(f"{runname} - |1-ROX/X4_M4| for cycle 15-40")
 st.pyplot(fig, use_container_width=False)
 
+
+
+vmin2 = st.number_input("Set vmin", value=0, step=100)
+vmax2 = st.number_input("Set vmax", value=30000, step=1000)
+
 m = np.ma.masked_invalid(std_full)
 fig, ax = plt.subplots(figsize=(14,6))  # uses global FIGSIZE/DPI above
-im = ax.imshow(np.ma.masked_invalid(m), cmap="Reds", aspect="auto", vmin=0, vmax=30000) # masks NaNs
+im = ax.imshow(np.ma.masked_invalid(m), cmap="Reds", aspect="auto", vmin=vmin2, vmax=vmax2) # masks NaNs
 ax.set_xticks(np.arange(len(cols)))
 ax.set_xticklabels(cols)
 ax.set_yticks(np.arange(len(rows)))
