@@ -34,24 +34,24 @@ def load_quantstudio(uploaded_file) -> pd.DataFrame:
     # """
     # Rename common QS headers to canonical names ('Well','Cycle','Stage','Step','Reporter','Cq').
     # """
-    rename = {}
-    for c in df.columns:
-        cl = str(c).strip().lower()
-        if cl == "well position": rename[c] = "Well"
-        elif cl == "cycle number": rename[c] = "Cycle"
-        elif cl == "stage number": rename[c] = "Stage"
-        elif cl == "step number":  rename[c] = "Step"
-        elif cl == "ct":           rename[c] = "Cq"       # normalize Ct → Cq
-        elif cl == "reporter":     rename[c] = "Reporter" # unify capitalization
-        elif cl == "well":         rename[c] = "Well"
-    if rename:
-        df.rename(columns=rename, inplace=True)
-
-    # If both "Index" and "Well" exist, drop numeric Index
-    if "Index" in df.columns and "Well" in df.columns:
-        df.drop(columns=["Index"], inplace=True)
-
-    return df
+        rename = {}
+        for c in df.columns:
+            cl = str(c).strip().lower()
+            if cl == "well position": rename[c] = "Well"
+            elif cl == "cycle number": rename[c] = "Cycle"
+            elif cl == "stage number": rename[c] = "Stage"
+            elif cl == "step number":  rename[c] = "Step"
+            elif cl == "ct":           rename[c] = "Cq"       # normalize Ct → Cq
+            elif cl == "reporter":     rename[c] = "Reporter" # unify capitalization
+            elif cl == "well":         rename[c] = "Well"
+        if rename:
+            df.rename(columns=rename, inplace=True)
+    
+        # If both "Index" and "Well" exist, drop numeric Index
+        if "Index" in df.columns and "Well" in df.columns:
+            df.drop(columns=["Index"], inplace=True)
+    
+        return df
 
 
     def _sanitize_after_read(df: pd.DataFrame) -> pd.DataFrame:
