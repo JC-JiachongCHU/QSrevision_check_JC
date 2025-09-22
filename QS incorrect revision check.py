@@ -168,6 +168,33 @@ def _standardize_cols_inplace(df: pd.DataFrame) -> pd.DataFrame:
     if "Index" in df.columns and "Well" in df.columns:
         df.drop(columns=["Index"], inplace=True)
     return df
+def _dedupe_cols_inplace(df: pd.DataFrame) -> pd.DataFrame:
+    """Make column labels unique by appending .1, .2, ..."""
+    seen = {}
+    new_cols = []
+    for c in map(str, df.columns):
+        if c in seen:
+            seen[c] += 1
+            new_cols.append(f"{c}.{seen[c]}")
+        else:
+            seen[c] = 0
+            new_cols.append(c)
+    df.columns = new_cols
+    return df
+
+def _find_col(df: pd.DataFrame, candidates: set[str]) -> str | None:
+    """Return the first matching column (case/space-insensitive)."""
+    # exact (normalized)
+    norm = {str(c).strip().lower(): c for c in df.columns}
+    for k in candidates:
+        if k in norm:
+            return norm[k]
+    # try base name before '.1' suffix, etc.
+    for c in df.columns:
+        base = str(c).split('.', 1)[0].strip().lower()
+        if base in candidates:
+            return c
+    return None
 
 # === Here we GO! ===
 
@@ -393,6 +420,11 @@ if combined:
         f"Raw='{sheetmap['raw'][0]}'@{sheetmap['raw'][1]}, "
         f"Multi='{sheetmap['multi'][0]}'@{sheetmap['multi'][1]})."
     )
+        # already calling _standardize_cols_inplace(...)
+    _standardize_cols_inplace(results); _standardize_cols_inplace(df); _standardize_cols_inplace(df_m)
+    
+    # NEW: ensure unique columns
+    _dedupe_cols_inplace(results); _dedupe_cols_inplace(df); _dedupe_cols_inplace(df_m)
 
 else:
     # 2) Best-effort combined: if exactly one XLSX is uploaded, assume all-in-one and try sheet names w/ header=24
@@ -454,11 +486,22 @@ else:
 
 
 # pull the FAM Cq of the reference well
-sub_ref = results[results["Well"].astype(str) == str(refwell)]
-sub_ref_fam = sub_ref[sub_ref["Reporter"].astype(str) == "FAM"]
-ref_vals = pd.to_numeric(sub_ref_fam["Cq"], errors="coerce").dropna().to_numpy()
-ref_cq = float(ref_vals[0]) if ref_vals.size else np.nan
+well_col     = _find_col(results, {"well"})
+reporter_col = _find_col(results, {"reporter"})
+cq_col       = _find_col(results, {"cq", "ct"})
 
+missing_cols = [name for name, col in
+                (("Well", well_col), ("Reporter", reporter_col), ("Cq/Ct", cq_col))
+                if col is None]
+if missing_cols:
+    st.error("Results sheet missing columns: " + ", ".join(missing_cols))
+    st.stop()
+
+# pull the FAM Cq of the reference well
+sub_ref = results[results[well_col].astype(str) == str(refwell)]
+sub_ref_fam = sub_ref[sub_ref[reporter_col].astype(str).str.upper() == "FAM"]
+ref_vals = pd.to_numeric(sub_ref_fam[cq_col], errors="coerce").dropna().to_numpy()
+ref_cq = float(ref_vals[0]) if ref_vals.size else np.nan
 
 mask = edited_grid.astype(bool)
 selected_rows = [r for r in mask.index if mask.loc[r].any()]
