@@ -366,31 +366,26 @@ refwell = st.selectbox(
 )
 
 
+# --- PICK INPUTS: combined wins; else require the three separate files ---
 results_file = raw_file = multicomponent_file = None
+
+# 0) Show what we got (helps debugging)
+st.caption("Uploaded files: " + ", ".join(f.name for f in uploaded_files) if uploaded_files else "none")
+
+# 1) Try classifier-based combined detection
 combined = detect_combined_qs_workbook_with_headers(uploaded_files)
+
+def _std(df):  # inline normalizer
+    _standardize_cols_inplace(df); return df
 
 if combined:
     combined_file, sheetmap = combined
 
-    # IMPORTANT: reset file pointer before each read
-    combined_file.seek(0)
-    results = pd.read_excel(
-        combined_file, sheet_name=sheetmap["results"][0], header=sheetmap["results"][1]
-    )
-    combined_file.seek(0)
-    df = pd.read_excel(
-        combined_file, sheet_name=sheetmap["raw"][0], header=sheetmap["raw"][1]
-    )
-    combined_file.seek(0)
-    df_m = pd.read_excel(
-        combined_file, sheet_name=sheetmap["multi"][0], header=sheetmap["multi"][1]
-    )
+    combined_file.seek(0); results = pd.read_excel(combined_file, sheet_name=sheetmap["results"][0], header=sheetmap["results"][1])
+    combined_file.seek(0); df      = pd.read_excel(combined_file, sheet_name=sheetmap["raw"][0],     header=sheetmap["raw"][1])
+    combined_file.seek(0); df_m    = pd.read_excel(combined_file, sheet_name=sheetmap["multi"][0],   header=sheetmap["multi"][1])
 
-    # Normalize names so later code works uniformly
-    _standardize_cols_inplace(results)
-    _standardize_cols_inplace(df)
-    _standardize_cols_inplace(df_m)
-
+    results, df, df_m = _std(results), _std(df), _std(df_m)
     runname = Path(combined_file.name).stem
     st.success(
         f"Loaded combined workbook: **{combined_file.name}** "
@@ -400,33 +395,63 @@ if combined:
     )
 
 else:
-    # Discover separate files by filename hints
-    for f in uploaded_files:
-        name = f.name.lower()
-        if "results" in name and all(k not in name for k in ["replicate","sample","rq"]):
-            results_file = f
-        elif ("raw data" in name) or ("raw_data" in name):  # allow underscore
-            raw_file = f
-        elif "multicomponent" in name:
-            multicomponent_file = f
+    # 2) Best-effort combined: if exactly one XLSX is uploaded, assume all-in-one and try sheet names w/ header=24
+    xl_only = [f for f in uploaded_files if Path(f.name).suffix.lower() in (".xlsx", ".xls")]
+    if len(xl_only) == 1:
+        f = xl_only[0]
+        try:
+            f.seek(0); xf = pd.ExcelFile(f)
+            # Guess sheet names and header row
+            # (Users can rename, but QS defaults are usually these.)
+            guess_map = {
+                "results": next((s for s in xf.sheet_names if s.lower() == "results"), None),
+                "raw":     next((s for s in xf.sheet_names if s.lower() in ("raw data","raw_data","rawdata")), None),
+                "multi":   next((s for s in xf.sheet_names if s.lower() in ("multicomponent","multi component","multicomponents")), None),
+            }
+            header_guess = 24
 
-    # Fail fast if any are missing
-    missing = []
-    if not results_file:        missing.append("Results (*_Results_*.csv/.xlsx)")
-    if not raw_file:            missing.append("Raw Data (*_Raw Data_*.csv/.xlsx)")
-    if not multicomponent_file: missing.append("Multicomponent (*_Multicomponent_*.csv/.xlsx)")
+            if all(guess_map.values()):
+                f.seek(0); results = pd.read_excel(f, sheet_name=guess_map["results"], header=header_guess)
+                f.seek(0); df      = pd.read_excel(f, sheet_name=guess_map["raw"],     header=header_guess)
+                f.seek(0); df_m    = pd.read_excel(f, sheet_name=guess_map["multi"],   header=header_guess)
 
-    if missing:
-        st.error("Missing file(s): " + ", ".join(missing))
-        st.stop()
+                results, df, df_m = _std(results), _std(df), _std(df_m)
+                runname = Path(f.name).stem
+                st.success(
+                    f"Loaded combined workbook (best-effort): **{f.name}** "
+                    f"(Results='{guess_map['results']}', Raw='{guess_map['raw']}', Multi='{guess_map['multi']}', header={header_guess})."
+                )
+            else:
+                raise RuntimeError("Could not guess all three sheet names.")
+        except Exception as e:
+            st.info(f"Combined auto-detect failed: {e}")
 
-    # Load + standardize (your cached loader)
-    results = load_quantstudio(results_file)
-    df      = load_quantstudio(raw_file)
-    df_m    = load_quantstudio(multicomponent_file)
+    # 3) If still not loaded, use separate files by filename hints
+    if 'results' not in locals() or 'df' not in locals() or 'df_m' not in locals():
+        for f in uploaded_files:
+            name = f.name.lower()
+            if "results" in name and all(k not in name for k in ["replicate","sample","rq"]):
+                results_file = f
+            elif ("raw data" in name) or ("raw_data" in name):
+                raw_file = f
+            elif "multicomponent" in name:
+                multicomponent_file = f
 
-    runname = Path(raw_file.name).stem.split('_Raw Data', 1)[0]
-    st.success("All key files loaded successfully from separate uploads!")
+        missing = []
+        if not results_file:        missing.append("Results (*_Results_*.csv/.xlsx)")
+        if not raw_file:            missing.append("Raw Data (*_Raw Data_*.csv/.xlsx)")
+        if not multicomponent_file: missing.append("Multicomponent (*_Multicomponent_*.csv/.xlsx)")
+
+        if missing:
+            st.error("Missing file(s): " + ", ".join(missing))
+            st.stop()
+
+        results = load_quantstudio(results_file)
+        df      = load_quantstudio(raw_file)
+        df_m    = load_quantstudio(multicomponent_file)
+        runname = Path(raw_file.name).stem.split('_Raw Data', 1)[0]
+        st.success("Loaded separate files.")
+
 
 # pull the FAM Cq of the reference well
 sub_ref = results[results["Well"].astype(str) == str(refwell)]
