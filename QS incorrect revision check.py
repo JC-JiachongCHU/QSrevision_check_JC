@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 from PIL import Image
 
-
+version = "demo v1.0.1"
 
 
 @st.cache_data(show_spinner=False)
@@ -101,7 +101,7 @@ st.set_page_config(
     page_icon="assets/SpearLogo.png",    # or "🧪" or a URL
     layout="wide",
 )
-version = "demo v1.0.1"
+
 
 col_logo, col_title = st.columns([1, 6])
 with col_logo:
@@ -115,9 +115,9 @@ with col_title:
 
 
 # st.subheader("Data Upload")
-st.markdown("Please import ALL exported file from QuantStudio")
+st.markdown("Please import the exported file from Design and Analysis")
 uploaded_files = []
-uploaded_files = st.file_uploader("QuantStudio exported files",type=["csv", "xlsx", "xls"],accept_multiple_files=True)
+uploaded_files = st.file_uploader("Design and Analysis exported files",type=["csv", "xlsx", "xls"],accept_multiple_files=True)
 
 
 def make_plate_df(plate_format: str) -> pd.DataFrame:
