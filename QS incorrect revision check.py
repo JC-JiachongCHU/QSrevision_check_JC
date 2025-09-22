@@ -14,11 +14,7 @@ from pathlib import Path
 from PIL import Image
 
 
-st.set_page_config(
-    page_title="QuantStudio incorrect revision check",
-    page_icon="assets/SpearLogo.png",    # or "🧪" or a URL
-    layout="wide",
-)
+
 
 @st.cache_data(show_spinner=False)
 def load_quantstudio(uploaded_file) -> pd.DataFrame:
@@ -99,8 +95,76 @@ mpl.rcParams.update({
     "legend.fontsize": 6,
 })
 
+
+
+# ---- let me see see what file you upload ----
+def _scan_header_row(xlsx_file, sheet_name, max_rows=200):
+    """Return the header row index for a QS sheet by scanning for known tokens."""
+    tmp = pd.read_excel(xlsx_file, sheet_name=sheet_name, header=None, nrows=max_rows)
+    for i in range(len(tmp)):
+        row = tmp.iloc[i].astype(str).str.lower().str.strip().tolist()
+        if any(tok in row for tok in ["well position", "cycle number", "reporter", "fam", "rox", "x1_m1", "x4_m4"]):
+            return i
+    return None
+
+def _classify_by_cols(cols: list[str]) -> str | None:
+    s = {c.strip().lower() for c in cols}
+    if {"well position","cycle number"} & s and any(x.startswith("x") and "_m" in x for x in s):
+        return "raw"
+    if {"well position","cycle number"} & s and ({"fam","rox"} & s):
+        return "multi"
+    if {"well position","reporter"} & s or {"cq","ct"} & s:
+        return "results"
+    return None
+
+def detect_combined_qs_workbook_with_headers(files: list):
+    """
+    Return (file, {'results':(sheet, header_idx), 'raw':(...), 'multi':(...)}), or None.
+    """
+    from pathlib import Path
+    xl_files = [f for f in files if Path(f.name).suffix.lower() in (".xlsx",".xls")]
+    for f in xl_files:
+        try:
+            xf = pd.ExcelFile(f)
+            found = {}
+            for sh in xf.sheet_names:
+                hdr = _scan_header_row(f, sh, max_rows=300)
+                if hdr is None:
+                    continue
+                # read one row to get column names with this header
+                df_try = pd.read_excel(f, sheet_name=sh, header=hdr, nrows=1)
+                kind = _classify_by_cols([str(c) for c in df_try.columns])
+                if kind and kind not in found:
+                    found[kind] = (sh, hdr)
+            if {"results","raw","multi"}.issubset(found.keys()):
+                return f, found
+        except Exception:
+            continue
+    return None
+
+def _standardize_cols_inplace(df: pd.DataFrame) -> pd.DataFrame:
+    rename = {}
+    for c in df.columns:
+        cl = str(c).lower().strip()
+        if cl == "well position": rename[c] = "Well"
+        elif cl == "cycle number": rename[c] = "Cycle"
+        elif cl == "stage number": rename[c] = "Stage"
+        elif cl == "step number":  rename[c] = "Step"
+        # Results sheet commonly already has 'Reporter' and 'Cq'
+        # Multicomponent usually already has 'FAM','ROX'
+    if rename:
+        df.rename(columns=rename, inplace=True)
+    if "Index" in df.columns and "Well" in df.columns:
+        df.drop(columns=["Index"], inplace=True)
+    return df
+
 # === Here we GO! ===
-st.set_page_config(layout="wide")
+
+st.set_page_config(
+    page_title="QuantStudio incorrect revision check",
+    page_icon="assets/SpearLogo.png",    # or "🧪" or a URL
+    layout="wide",
+)
 version = "demo v1.0.1"
 
 col_logo, col_title = st.columns([1, 6])
@@ -115,9 +179,9 @@ with col_title:
 
 
 # st.subheader("Data Upload")
-st.markdown("Please import ALL exported file from QuantStudio")
+st.markdown("Please import ALL exported file from QuantStudio Design and Analysis")
 uploaded_files = []
-uploaded_files = st.file_uploader("QuantStudio exported files",type=["csv", "xlsx", "xls"],accept_multiple_files=True)
+uploaded_files = st.file_uploader("QuantStudio Design and Analysis exported files",type=["csv", "xlsx", "xls"],accept_multiple_files=True)
 
 
 def make_plate_df(plate_format: str) -> pd.DataFrame:
@@ -291,34 +355,61 @@ refwell = st.selectbox(
 )
 
 
-results_file = None
-raw_file = None
-multicomponent_file = None
+results_file = raw_file = multicomponent_file = None
+combined = detect_combined_qs_workbook_with_headers(uploaded_files)
 
-for f in uploaded_files:  # uploaded_files comes from st.file_uploader
-    name = f.name.lower()
-    if "results" in name and "replicate" not in name and "sample" not in name and "rq" not in name:
-        results_file = f
-    elif "raw data" in name:
-        raw_file = f
-    elif "multicomponent" in name:
-        multicomponent_file = f
+if combined:
+    combined_file, sheetmap = combined
 
-if not results_file:
-    st.error("No Results file found (expected something like *_Results_*.csv)")
-if not raw_file:
-    st.error("No Raw Data file found (expected something like *_Raw Data_*.csv)")
-if not multicomponent_file:
-    st.error("No Multicomponent file found (expected something like *_Multicomponent_*.csv)")
+    # Read sheets with discovered header rows
+    results = pd.read_excel(combined_file, sheet_name=sheetmap["results"][0],
+                            header=sheetmap["results"][1])
+    df      = pd.read_excel(combined_file, sheet_name=sheetmap["raw"][0],
+                            header=sheetmap["raw"][1])
+    df_m    = pd.read_excel(combined_file, sheet_name=sheetmap["multi"][0],
+                            header=sheetmap["multi"][1])
 
-runname = Path(raw_file.name).stem.split('_Raw Data', 1)[0]
+    # Normalize names so later code works uniformly
+    _standardize_cols_inplace(results)
+    _standardize_cols_inplace(df)
+    _standardize_cols_inplace(df_m)
 
-if results_file and raw_file and multicomponent_file:
+    runname = Path(combined_file.name).stem  # <-- keep this (don’t overwrite)
+    st.success(
+        f"Loaded combined workbook: **{combined_file.name}** "
+        f"(Results='{sheetmap['results'][0]}'@{sheetmap['results'][1]}, "
+        f"Raw='{sheetmap['raw'][0]}'@{sheetmap['raw'][1]}, "
+        f"Multi='{sheetmap['multi'][0]}'@{sheetmap['multi'][1]})."
+    )
+
+else:
+    # Discover separate files by filename hints
+    for f in uploaded_files:
+        name = f.name.lower()
+        if "results" in name and all(k not in name for k in ["replicate","sample","rq"]):
+            results_file = f
+        elif "raw data" in name:
+            raw_file = f
+        elif "multicomponent" in name:
+            multicomponent_file = f
+
+    # Fail fast if any are missing
+    missing = []
+    if not results_file:        missing.append("Results (*_Results_*.csv/.xlsx)")
+    if not raw_file:            missing.append("Raw Data (*_Raw Data_*.csv/.xlsx)")
+    if not multicomponent_file: missing.append("Multicomponent (*_Multicomponent_*.csv/.xlsx)")
+
+    if missing:
+        st.error("Missing file(s): " + ", ".join(missing))
+        st.stop()
+
+    # Load + standardize
     results = load_quantstudio(results_file)
-    df = load_quantstudio(raw_file)
-    df_m = load_quantstudio(multicomponent_file)
+    df      = load_quantstudio(raw_file)
+    df_m    = load_quantstudio(multicomponent_file)
 
-    st.success("All key files loaded successfully!")
+    runname = Path(raw_file.name).stem.split('_Raw Data', 1)[0]
+    st.success("All key files loaded successfully from separate uploads!")
 
 # pull the FAM Cq of the reference well
 sub_ref = results[results["Well"].astype(str) == str(refwell)]
