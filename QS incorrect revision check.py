@@ -443,7 +443,7 @@ cbar = plt.colorbar(sc, ax=ax)
 cbar.set_label("Pair min AVG of |1 − (ROX/X4_M4)| cycles 15–40")
 st.pyplot(fig, use_container_width=False)
 
-vmin1 = st.number_input("Set vmin", value=0, step=0.1)
+vmin1 = st.number_input("Set vmin", value=0.0, step=0.1)
 vmax1 = st.number_input("Set vmax", value=0.5, step=0.1)
 
 m = np.ma.masked_invalid(avg_full)
