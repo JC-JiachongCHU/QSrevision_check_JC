@@ -13,8 +13,8 @@ import re
 from pathlib import Path
 from PIL import Image
 
-version = "demo v1.0.1"
 
+version = "demo v1.0.2"
 
 @st.cache_data(show_spinner=False)
 def load_quantstudio(uploaded_file) -> pd.DataFrame:
@@ -79,7 +79,32 @@ def load_quantstudio(uploaded_file) -> pd.DataFrame:
 
     else:
         raise ValueError(f"Unsupported file type: {suffix}")
+        
+def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    rename = {}
+    for c in df.columns:
+        cl = str(c).lower().strip()
+        if cl == "well position": rename[c] = "Well"
+        elif cl == "cycle number": rename[c] = "Cycle"
+        elif cl == "well":         rename[c] = "Index"
+        elif cl == "stage number": rename[c] = "Stage"
+        elif cl == "step number":  rename[c] = "Step"
+    return df.rename(columns=rename) if rename else df
 
+def _load_combined_xlsx(file_like):
+    # Always try to read all three sheets with header row = 25th row (0-indexed 24)
+    df    = pd.read_excel(file_like, sheet_name="Raw Data",       header=24, engine="openpyxl")
+    df_m  = pd.read_excel(file_like, sheet_name="Multicomponent", header=24, engine="openpyxl")
+    res   = pd.read_excel(file_like, sheet_name="Results",        header=24, engine="openpyxl")
+    return (_standardize_columns(res),
+            _standardize_columns(df),
+            _standardize_columns(df_m))
+
+def _guess_runname(filename: str) -> str:
+    return Path(filename).stem
+
+    
+    
 # ---- Global Matplotlib sizing (tweak as you like) ----
 # FIGSIZE = (7,5)   # inches
 DPI = 110              # pixels per inch
@@ -294,30 +319,42 @@ refwell = st.selectbox(
 results_file = None
 raw_file = None
 multicomponent_file = None
+combined_file = None
 
-for f in uploaded_files:  # uploaded_files comes from st.file_uploader
+for f in uploaded_files:  # from st.file_uploader
     name = f.name.lower()
-    if "results" in name and "replicate" not in name and "sample" not in name and "rq" not in name:
+    if name.endswith((".xlsx", ".xls")):
+        # candidate for combined export
+        combined_file = f
+    elif "results" in name and "replicate" not in name and "sample" not in name and "rq" not in name:
         results_file = f
     elif "raw data" in name:
         raw_file = f
     elif "multicomponent" in name:
         multicomponent_file = f
 
-if not results_file:
-    st.error("No Results file found (expected something like *_Results_*.csv)")
-if not raw_file:
-    st.error("No Raw Data file found (expected something like *_Raw Data_*.csv)")
-if not multicomponent_file:
-    st.error("No Multicomponent file found (expected something like *_Multicomponent_*.csv)")
+if combined_file is not None:
+    try:
+        results, df, df_m = _load_combined_xlsx(combined_file)
+        runname = _guess_runname(combined_file.name)
+        st.success(f"Loaded combined workbook: {combined_file.name}")
+    except Exception as e:
+        st.error(f"Failed to read {combined_file.name}: {e}")
+        st.stop()
+else:
+    if not results_file:
+        st.error("No Results file found (expected *_Results_*.csv)")
+    if not raw_file:
+        st.error("No Raw Data file found (expected *_Raw Data_*.csv)")
+    if not multicomponent_file:
+        st.error("No Multicomponent file found (expected *_Multicomponent_*.csv)")
+    if not (results_file and raw_file and multicomponent_file):
+        st.stop()
 
-runname = Path(raw_file.name).stem.split('_Raw Data', 1)[0]
-
-if results_file and raw_file and multicomponent_file:
     results = load_quantstudio(results_file)
-    df = load_quantstudio(raw_file)
-    df_m = load_quantstudio(multicomponent_file)
-
+    df      = load_quantstudio(raw_file)
+    df_m    = load_quantstudio(multicomponent_file)
+    runname = Path(raw_file.name).stem.split('_Raw Data', 1)[0]
     st.success("All key files loaded successfully!")
 
 # pull the FAM Cq of the reference well
@@ -442,6 +479,7 @@ ax.set_title(f"{runname} · Rep style: {replicate_style}")
 cbar = plt.colorbar(sc, ax=ax)
 cbar.set_label("Pair min AVG of |1 − (ROX/X4_M4)| cycles 15–40")
 st.pyplot(fig, use_container_width=False)
+
 
 vmin = st.number_input("Set vmin", value=0.0, step=0.1)
 vmax = st.number_input("Set vmax", value=0.5, step=0.1)
