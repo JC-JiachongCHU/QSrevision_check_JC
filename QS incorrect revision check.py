@@ -140,7 +140,7 @@ with col_title:
 
 
 # st.subheader("Data Upload")
-st.markdown("Please import the exported file from Design and Analysis")
+st.markdown("Please import the exported file from Design and Analysis (combined in one: xlsx; separated file: csv)")
 uploaded_files = []
 uploaded_files = st.file_uploader("Design and Analysis exported files",type=["csv", "xlsx", "xls"],accept_multiple_files=True)
 
