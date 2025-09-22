@@ -14,7 +14,7 @@ from pathlib import Path
 from PIL import Image
 
 
-
+version = "demo v1.0.2"
 
 @st.cache_data(show_spinner=False)
 def load_quantstudio(uploaded_file) -> pd.DataFrame:
@@ -176,7 +176,7 @@ st.set_page_config(
     page_icon="assets/SpearLogo.png",    # or "🧪" or a URL
     layout="wide",
 )
-version = "demo v1.0.1"
+
 
 col_logo, col_title = st.columns([1, 6])
 with col_logo:
