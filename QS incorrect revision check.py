@@ -372,6 +372,7 @@ selected_wells = []
 FRC = np.full((len(selected_rows), len(selected_cols)), np.nan, dtype=float)
 avg = np.full_like(FRC, np.nan, dtype=float)
 std = np.full_like(FRC, np.nan, dtype=float)
+std_first_der = np.full_like(FRC, np.nan, dtype=float)
 # ---------- Fill FRC and avg only for checked wells ----------
 for i, r in enumerate(selected_rows):
     for j, c in enumerate(selected_cols):
@@ -394,10 +395,12 @@ for i, r in enumerate(selected_rows):
         flag = np.abs(1.0 - rox_post / rox_y)
         std[i, j] = np.nanstd(rox_y[0:15])
         avg[i, j] = np.nanmean(flag[14:40])  # cycles 15–40
-
+        std_first_der[i,j] = np.nanstd(np.diff(rox_y[0:15]))
+        
 # full-plate NaN matrices
 avg_full = np.full((len(rows), len(cols)), np.nan, dtype=float)
 std_full = np.full_like(avg_full, np.nan, dtype=float)
+std_first_der_full = np.full_like(avg_full, np.nan, dtype=float)
 
 # quick index maps
 row_ix = {r: i for i, r in enumerate(rows)}
@@ -418,7 +421,10 @@ for r in rows:
             std_full[i, j] = np.nanstd(rox_y[:15])
             flag = np.abs(1.0 - rox_post / rox_y)
             avg_full[i, j] = np.nanmean(flag[14:40])
-
+            # std_first_der_full = np.nanstd(np.diff(rox_y[0:15]))
+            n = min(len(rox_y), 15)
+            if n >= 2:
+                std_first_der_full[i, j] = np.nanstd(np.diff(rox_y[:n]))
 
 
 # ----- calculate the replicates
@@ -503,11 +509,11 @@ cbar.set_label(f"|1-ROX/X4_M4| for cycle 15-40")
 ax.set_title(f"{runname} - |1-ROX/X4_M4| for cycle 15-40")
 st.pyplot(fig, use_container_width=False)
 
-vmin = st.number_input("Set vmin", value=0, step=100)
-vmax = st.number_input("Set vmax", value=30000, step=100)
+vmin_std = st.number_input("Set vmin", value=0, step=100)
+vmax_std = st.number_input("Set vmax", value=30000, step=100)
 m = np.ma.masked_invalid(std_full)
 fig, ax = plt.subplots(figsize=(14,6))  # uses global FIGSIZE/DPI above
-im = ax.imshow(np.ma.masked_invalid(m), cmap="Reds", aspect="auto", vmin=vmin, vmax=vmax) # masks NaNs
+im = ax.imshow(np.ma.masked_invalid(m), cmap="Reds", aspect="auto", vmin=vmin_std, vmax=vmax_std) # masks NaNs
 ax.set_xticks(np.arange(len(cols)))
 ax.set_xticklabels(cols)
 ax.set_yticks(np.arange(len(rows)))
@@ -524,3 +530,26 @@ for i in range(m.shape[0]):
 cbar.set_label(f"Standard deviation (X4_M4) for first 15 cycles")
 ax.set_title(f"{runname} - std (X4_M4) for first 15 cycles")
 st.pyplot(fig, use_container_width=False)
+
+vmin_der = st.number_input("Set vmin", value=0, step=100, key="der_vmin")
+vmax_der = st.number_input("Set vmax", value=30000, step=100, key="der_vmax")
+m = np.ma.masked_invalid(std_first_der_full)
+fig, ax = plt.subplots(figsize=(14,6))  # uses global FIGSIZE/DPI above
+im = ax.imshow(np.ma.masked_invalid(m), cmap="Reds", aspect="auto", vmin=vmin_der, vmax=vmax_der) # masks NaNs
+ax.set_xticks(np.arange(len(cols)))
+ax.set_xticklabels(cols)
+ax.set_yticks(np.arange(len(rows)))
+ax.set_yticklabels(rows)
+ax.set_xlabel("Column")
+ax.set_ylabel("Row")
+cbar = plt.colorbar(im, ax=ax)
+plt.setp(ax.get_xticklabels(), rotation=90, ha="center")
+for i in range(m.shape[0]):
+    for j in range(m.shape[1]):
+        if not m.mask[i, j]:                          # <- this is the key
+            ax.text(j, i, f"{m[i, j]:.2f}",
+                    ha="center", va="center", fontsize=5, color="black")
+cbar.set_label(f"Standard deviation (X4_M4)' for first 15 cycles")
+ax.set_title(f"{runname} - std (X4_M4)' for first 15 cycles")
+st.pyplot(fig, use_container_width=False)
+
