@@ -504,7 +504,7 @@ ax.set_title(f"{runname} - |1-ROX/X4_M4| for cycle 15-40")
 st.pyplot(fig, use_container_width=False)
 
 vmin = st.number_input("Set vmin", value=0, step=100)
-vmax = st.number_input("Set vmax", value=6000, step=100)
+vmax = st.number_input("Set vmax", value=30000, step=100)
 m = np.ma.masked_invalid(std_full)
 fig, ax = plt.subplots(figsize=(14,6))  # uses global FIGSIZE/DPI above
 im = ax.imshow(np.ma.masked_invalid(m), cmap="Reds", aspect="auto", vmin=vmin, vmax=vmax) # masks NaNs
