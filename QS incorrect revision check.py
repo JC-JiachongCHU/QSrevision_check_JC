@@ -14,7 +14,7 @@ from pathlib import Path
 from PIL import Image
 
 
-version = "demo v1.0.2"
+version = "demo v1.0.3"
 
 @st.cache_data(show_spinner=False)
 def load_quantstudio(uploaded_file) -> pd.DataFrame:
@@ -393,9 +393,9 @@ for i, r in enumerate(selected_rows):
         rox_y = pd.to_numeric(sub_raw[rox_raw_ch], errors="coerce").to_numpy()
         rox_post = pd.to_numeric(sub_mc[ROX_post_ch], errors="coerce").to_numpy()
         flag = np.abs(1.0 - rox_post / rox_y)
-        std[i, j] = np.nanstd(rox_y[0:15])
+        std[i, j] = np.nanstd(rox_y[0:15],ddof = 1)
         avg[i, j] = np.nanmean(flag[14:40])  # cycles 15–40
-        std_first_der[i,j] = np.nanstd(np.diff(rox_y[0:15]))
+        std_first_der[i,j] = np.nanstd(np.diff(rox_y[0:15]),ddof = 1)
         
 # full-plate NaN matrices
 avg_full = np.full((len(rows), len(cols)), np.nan, dtype=float)
@@ -418,13 +418,13 @@ for r in rows:
             sub_mc  = df_m[df_m["Well"].astype(str) == well]
             rox_y    = pd.to_numeric(sub_raw[rox_raw_ch], errors="coerce").to_numpy()
             rox_post = pd.to_numeric(sub_mc[ROX_post_ch], errors="coerce").to_numpy()
-            std_full[i, j] = np.nanstd(rox_y[:15])
+            std_full[i, j] = np.nanstd(rox_y[:15],ddof = 1)
             flag = np.abs(1.0 - rox_post / rox_y)
             avg_full[i, j] = np.nanmean(flag[14:40])
-            # std_first_der_full = np.nanstd(np.diff(rox_y[0:15]))
+            # std_first_der_full = np.nanstd(np.diff(rox_y[0:15]),ddof = 1)
             n = min(len(rox_y), 15)
             if n >= 2:
-                std_first_der_full[i, j] = np.nanstd(np.diff(rox_y[:n]))
+                std_first_der_full[i, j] = np.nanstd(np.diff(rox_y[:n]),ddof = 1)
 
 
 # ----- calculate the replicates
@@ -442,7 +442,7 @@ if replicate_style.startswith("Left"):
     left, right = FRC[:, :mid], FRC[:, mid:]
     stack = np.stack([left, right], axis=0)          # (2, rows, mid)
     pair_avg = np.nanmean(stack, axis=0)             # (rows, mid)
-    pair_std = np.nanstd(stack, axis=0, ddof=0)
+    pair_std = np.nanstd(stack, axis=0, ddof=1)
     pair_cv = (pair_std / pair_avg) * 100.0
 
     aux_left, aux_right = avg[:, :mid], avg[:, mid:]
@@ -452,7 +452,7 @@ else:  # Up–Down neighbors: A↔B, C↔D, ...
     top, bottom = FRC[0::2, :], FRC[1::2, :]         # (rows/2, cols)
     stack = np.stack([top, bottom], axis=0)          # (2, rows/2, cols)
     pair_avg = np.nanmean(stack, axis=0)             # (rows/2, cols)
-    pair_std = np.nanstd(stack, axis=0, ddof=0)
+    pair_std = np.nanstd(stack, axis=0, ddof=1)
     pair_cv = (pair_std / pair_avg) * 100.0
 
     aux_top, aux_bottom = avg[0::2, :], avg[1::2, :]
@@ -531,25 +531,25 @@ cbar.set_label(f"Standard deviation (X4_M4) for first 15 cycles")
 ax.set_title(f"{runname} - std (X4_M4) for first 15 cycles")
 st.pyplot(fig, use_container_width=False)
 
-vmin_der = st.number_input("Set vmin", value=0, step=100, key="der_vmin")
-vmax_der = st.number_input("Set vmax", value=30000, step=100, key="der_vmax")
-m = np.ma.masked_invalid(std_first_der_full)
-fig, ax = plt.subplots(figsize=(14,6))  # uses global FIGSIZE/DPI above
-im = ax.imshow(np.ma.masked_invalid(m), cmap="Reds", aspect="auto", vmin=vmin_der, vmax=vmax_der) # masks NaNs
-ax.set_xticks(np.arange(len(cols)))
-ax.set_xticklabels(cols)
-ax.set_yticks(np.arange(len(rows)))
-ax.set_yticklabels(rows)
-ax.set_xlabel("Column")
-ax.set_ylabel("Row")
-cbar = plt.colorbar(im, ax=ax)
-plt.setp(ax.get_xticklabels(), rotation=90, ha="center")
-for i in range(m.shape[0]):
-    for j in range(m.shape[1]):
-        if not m.mask[i, j]:                          # <- this is the key
-            ax.text(j, i, f"{m[i, j]:.2f}",
-                    ha="center", va="center", fontsize=5, color="black")
-cbar.set_label(f"Standard deviation (X4_M4)' for first 15 cycles")
+# vmin_der = st.number_input("Set vmin", value=0, step=100, key="der_vmin")
+# vmax_der = st.number_input("Set vmax", value=30000, step=100, key="der_vmax")
+# m = np.ma.masked_invalid(std_first_der_full)
+# fig, ax = plt.subplots(figsize=(14,6))  # uses global FIGSIZE/DPI above
+# im = ax.imshow(np.ma.masked_invalid(m), cmap="Reds", aspect="auto", vmin=vmin_der, vmax=vmax_der) # masks NaNs
+# ax.set_xticks(np.arange(len(cols)))
+# ax.set_xticklabels(cols)
+# ax.set_yticks(np.arange(len(rows)))
+# ax.set_yticklabels(rows)
+# ax.set_xlabel("Column")
+# ax.set_ylabel("Row")
+# cbar = plt.colorbar(im, ax=ax)
+# plt.setp(ax.get_xticklabels(), rotation=90, ha="center")
+# for i in range(m.shape[0]):
+#     for j in range(m.shape[1]):
+#         if not m.mask[i, j]:                          # <- this is the key
+#             ax.text(j, i, f"{m[i, j]:.2f}",
+#                     ha="center", va="center", fontsize=5, color="black")
+# cbar.set_label(f"Standard deviation (X4_M4)' for first 15 cycles")
 ax.set_title(f"{runname} - std (X4_M4)' for first 15 cycles")
 st.pyplot(fig, use_container_width=False)
 
