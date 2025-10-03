@@ -550,6 +550,6 @@ st.pyplot(fig, use_container_width=False)
 #             ax.text(j, i, f"{m[i, j]:.2f}",
 #                     ha="center", va="center", fontsize=5, color="black")
 # cbar.set_label(f"Standard deviation (X4_M4)' for first 15 cycles")
-ax.set_title(f"{runname} - std (X4_M4)' for first 15 cycles")
-st.pyplot(fig, use_container_width=False)
+# ax.set_title(f"{runname} - std (X4_M4)' for first 15 cycles")
+# st.pyplot(fig, use_container_width=False)
 
