@@ -14,7 +14,7 @@ from pathlib import Path
 from PIL import Image
 
 
-version = "demo v1.0.3"
+version = "demo v1.1.0"
 
 @st.cache_data(show_spinner=False)
 def load_quantstudio(uploaded_file) -> pd.DataFrame:
@@ -447,7 +447,9 @@ if replicate_style.startswith("Left"):
 
     aux_left, aux_right = avg[:, :mid], avg[:, mid:]
     pair_color = np.maximum(aux_left, aux_right)     # (rows, mid)
-
+    cv_rows = [str(r) for r in rows]  # unchanged
+    cv_cols = [f"{c}&{c+mid}" for c in cols[:mid]]
+    
 else:  # Up–Down neighbors: A↔B, C↔D, ...
     top, bottom = FRC[0::2, :], FRC[1::2, :]         # (rows/2, cols)
     stack = np.stack([top, bottom], axis=0)          # (2, rows/2, cols)
@@ -457,7 +459,8 @@ else:  # Up–Down neighbors: A↔B, C↔D, ...
 
     aux_top, aux_bottom = avg[0::2, :], avg[1::2, :]
     pair_color = np.maximum(aux_top, aux_bottom)  
-
+    cv_rows = [f"{rows[i]}&{rows[i+1]}" for i in range(0, len(rows), 2)]
+    cv_cols = [str(c) for c in cols]
 X = pair_avg.ravel()
 Y = pair_cv.ravel()
 C = pair_color.ravel()
@@ -486,6 +489,26 @@ cbar = plt.colorbar(sc, ax=ax)
 cbar.set_label("Pair min AVG of |1 − (ROX/X4_M4)| cycles 15–40")
 st.pyplot(fig, use_container_width=False)
 
+vmin_der = st.number_input("Set vmin", value=0, step=1, key="der_vmin")
+vmax_der = st.number_input("Set vmax", value=20, step=1, key="der_vmax")
+m = np.ma.masked_invalid(pair_cv)
+fig, ax = plt.subplots(figsize=(14, 6))
+im = ax.imshow(m, cmap="Reds", aspect="auto",
+               vmin=vmin_der, vmax=vmax_der)
+ax.set_xticks(np.arange(len(cv_cols)))
+ax.set_xticklabels(cv_cols)
+ax.set_yticks(np.arange(len(cv_rows)))
+ax.set_yticklabels(cv_rows)
+# annotate non-masked cells
+for i in range(m.shape[0]):
+    for j in range(m.shape[1]):
+        if not m.mask[i, j]:
+            ax.text(j, i, f"{m[i, j]:.2f}",
+                    ha="center", va="center", fontsize=5, color="black")
+plt.colorbar(im, ax=ax).set_label("FRC_CV")
+ax.set_xlabel("Column"); ax.set_ylabel("Row")
+ax.set_title(f"{runname} - FRC_CV")
+st.pyplot(fig, use_container_width=False)
 
 vmin = st.number_input("Set vmin", value=0.0, step=0.1)
 vmax = st.number_input("Set vmax", value=0.5, step=0.1)
@@ -530,26 +553,4 @@ for i in range(m.shape[0]):
 cbar.set_label(f"Standard deviation (X4_M4) for first 15 cycles")
 ax.set_title(f"{runname} - std (X4_M4) for first 15 cycles")
 st.pyplot(fig, use_container_width=False)
-
-# vmin_der = st.number_input("Set vmin", value=0, step=100, key="der_vmin")
-# vmax_der = st.number_input("Set vmax", value=30000, step=100, key="der_vmax")
-# m = np.ma.masked_invalid(std_first_der_full)
-# fig, ax = plt.subplots(figsize=(14,6))  # uses global FIGSIZE/DPI above
-# im = ax.imshow(np.ma.masked_invalid(m), cmap="Reds", aspect="auto", vmin=vmin_der, vmax=vmax_der) # masks NaNs
-# ax.set_xticks(np.arange(len(cols)))
-# ax.set_xticklabels(cols)
-# ax.set_yticks(np.arange(len(rows)))
-# ax.set_yticklabels(rows)
-# ax.set_xlabel("Column")
-# ax.set_ylabel("Row")
-# cbar = plt.colorbar(im, ax=ax)
-# plt.setp(ax.get_xticklabels(), rotation=90, ha="center")
-# for i in range(m.shape[0]):
-#     for j in range(m.shape[1]):
-#         if not m.mask[i, j]:                          # <- this is the key
-#             ax.text(j, i, f"{m[i, j]:.2f}",
-#                     ha="center", va="center", fontsize=5, color="black")
-# cbar.set_label(f"Standard deviation (X4_M4)' for first 15 cycles")
-# ax.set_title(f"{runname} - std (X4_M4)' for first 15 cycles")
-# st.pyplot(fig, use_container_width=False)
 
