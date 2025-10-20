@@ -701,7 +701,7 @@ def _extract_series_for_well(well: str):
 
 # ---------- Plot Raw / MC / Both (one figure) ----------
 if wells_to_plot:
-    fig, ax = plt.subplots(figsize=(4, 2.5))
+    fig, ax = plt.subplots(figsize=(8,5))
 
     # One distinct color per well from the rc cycle
     colors = plt.rcParams['axes.prop_cycle'].by_key().get('color', ["C0","C1","C2","C3","C4","C5","C6","C7","C8","C9"])
