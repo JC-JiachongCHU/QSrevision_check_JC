@@ -435,30 +435,7 @@ for i, r in enumerate(selected_rows):
         std_first_der[i,j] = np.nanstd(np.diff(rox_y[0:15]),ddof = 1)
         
 
-if replicate_style.startswith("Left"):  # Left–Right (halves)
-    left  = FRC_full[:, :mid_full]
-    right = FRC_full[:,  mid_full:]
-    stack = np.stack([left, right], axis=0)                 # (2, rows, mid_full)
-    pair_avg_full = np.nanmean(stack, axis=0)               # (rows, mid_full)
-    pair_std_full = np.nanstd(stack, axis=0, ddof=1)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        pair_cv_full = (pair_std_full / pair_avg_full) * 100.0
-    # color by the worse (larger) |1-ROX/X4_M4| of the pair using full-plate avg_full
-    aux_left, aux_right = avg_full[:, :mid_full], avg_full[:, mid_full:]
-    pair_color_full = np.nanmax(np.stack([aux_left, aux_right], axis=0), axis=0)
-    cv_rows_full = [str(r) for r in rows]
-    cv_cols_full = [f"{c}&{c+mid_full}" for c in cols[:mid_full]]
-else:  # Up–Down (neighbors)
-    top, bottom = FRC_full[0::2, :], FRC_full[1::2, :]       # (rows/2, cols)
-    stack = np.stack([top, bottom], axis=0)                 # (2, rows/2, cols)
-    pair_avg_full = np.nanmean(stack, axis=0)               # (rows/2, cols)
-    pair_std_full = np.nanstd(stack, axis=0, ddof=1)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        pair_cv_full = (pair_std_full / pair_avg_full) * 100.0
-    aux_top, aux_bottom = avg_full[0::2, :], avg_full[1::2, :]
-    pair_color_full = np.nanmax(np.stack([aux_top, aux_bottom], axis=0), axis=0)
-    cv_rows_full = [f"{rows[i]}&{rows[i+1]}" for i in range(0, len(rows), 2)]
-    cv_cols_full = [str(c) for c in cols]
+
     
 # quick index maps
 row_ix = {r: i for i, r in enumerate(rows)}
@@ -522,7 +499,30 @@ avg_full = np.full((len(rows), len(cols)), np.nan, dtype=float)
 std_full = np.full_like(avg_full, np.nan, dtype=float)
 std_first_der_full = np.full_like(avg_full, np.nan, dtype=float)
 mid_full = len(cols) // 2
-
+if replicate_style.startswith("Left"):  # Left–Right (halves)
+    left  = FRC_full[:, :mid_full]
+    right = FRC_full[:,  mid_full:]
+    stack = np.stack([left, right], axis=0)                 # (2, rows, mid_full)
+    pair_avg_full = np.nanmean(stack, axis=0)               # (rows, mid_full)
+    pair_std_full = np.nanstd(stack, axis=0, ddof=1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        pair_cv_full = (pair_std_full / pair_avg_full) * 100.0
+    # color by the worse (larger) |1-ROX/X4_M4| of the pair using full-plate avg_full
+    aux_left, aux_right = avg_full[:, :mid_full], avg_full[:, mid_full:]
+    pair_color_full = np.nanmax(np.stack([aux_left, aux_right], axis=0), axis=0)
+    cv_rows_full = [str(r) for r in rows]
+    cv_cols_full = [f"{c}&{c+mid_full}" for c in cols[:mid_full]]
+else:  # Up–Down (neighbors)
+    top, bottom = FRC_full[0::2, :], FRC_full[1::2, :]       # (rows/2, cols)
+    stack = np.stack([top, bottom], axis=0)                 # (2, rows/2, cols)
+    pair_avg_full = np.nanmean(stack, axis=0)               # (rows/2, cols)
+    pair_std_full = np.nanstd(stack, axis=0, ddof=1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        pair_cv_full = (pair_std_full / pair_avg_full) * 100.0
+    aux_top, aux_bottom = avg_full[0::2, :], avg_full[1::2, :]
+    pair_color_full = np.nanmax(np.stack([aux_top, aux_bottom], axis=0), axis=0)
+    cv_rows_full = [f"{rows[i]}&{rows[i+1]}" for i in range(0, len(rows), 2)]
+    cv_cols_full = [str(c) for c in cols]
 X = pair_avg.ravel()
 Y = pair_cv.ravel()
 C = pair_color.ravel()
