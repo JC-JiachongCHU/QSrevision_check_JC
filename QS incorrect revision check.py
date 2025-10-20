@@ -434,11 +434,6 @@ for i, r in enumerate(selected_rows):
         avg[i, j] = np.nanmean(flag[14:40])  # cycles 15–40
         std_first_der[i,j] = np.nanstd(np.diff(rox_y[0:15]),ddof = 1)
         
-# full-plate NaN matrices
-avg_full = np.full((len(rows), len(cols)), np.nan, dtype=float)
-std_full = np.full_like(avg_full, np.nan, dtype=float)
-std_first_der_full = np.full_like(avg_full, np.nan, dtype=float)
-mid_full = len(cols) // 2
 
 if replicate_style.startswith("Left"):  # Left–Right (halves)
     left  = FRC_full[:, :mid_full]
@@ -521,6 +516,12 @@ else:  # Up–Down neighbors: A↔B, C↔D, ...
 
     aux_top, aux_bottom = avg[0::2, :], avg[1::2, :]
     pair_color = np.maximum(aux_top, aux_bottom)  
+    
+# full-plate NaN matrices
+avg_full = np.full((len(rows), len(cols)), np.nan, dtype=float)
+std_full = np.full_like(avg_full, np.nan, dtype=float)
+std_first_der_full = np.full_like(avg_full, np.nan, dtype=float)
+mid_full = len(cols) // 2
 
 X = pair_avg.ravel()
 Y = pair_cv.ravel()
