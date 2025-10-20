@@ -14,7 +14,9 @@ from pathlib import Path
 from PIL import Image
 
 
-version = "demo v1.1.0"
+version = "demo v1.2.0"
+
+version_change = 'Add a function at the end of the code that provides an interface to plot raw and/or multicomponent data for selected individual wells.'
 
 @st.cache_data(show_spinner=False)
 def load_quantstudio(uploaded_file) -> pd.DataFrame:
@@ -96,9 +98,20 @@ def _load_combined_xlsx(file_like):
     df    = pd.read_excel(file_like, sheet_name="Raw Data",       header=24, engine="openpyxl")
     df_m  = pd.read_excel(file_like, sheet_name="Multicomponent", header=24, engine="openpyxl")
     res   = pd.read_excel(file_like, sheet_name="Results",        header=24, engine="openpyxl")
+
+    # Optional: Amplification Data (Rn / ΔRn)
+    amp = None
+    try:
+        amp = pd.read_excel(file_like, sheet_name="Amplification Data", header=24, engine="openpyxl")
+        amp = _standardize_columns(amp)
+    except Exception:
+        pass
+
     return (_standardize_columns(res),
             _standardize_columns(df),
-            _standardize_columns(df_m))
+            _standardize_columns(df_m),
+            _standardize_columns(amp) if amp is not None else None)
+
 
 def _guess_runname(filename: str) -> str:
     return Path(filename).stem
@@ -134,7 +147,7 @@ with col_logo:
 with col_title:
     st.title("QuantStudio incorrect revision check")
     st.caption(f"Version {version} • Contact: Jiachong Chu")
-
+    st.caption(f"Version update detail: {version_change}")
 
 
 
@@ -290,30 +303,49 @@ rox_raw_ch = 'X4_M4'   # pre: ROX raw
 FAM_post_ch = 'FAM'    # post: FAM multicomponent
 ROX_post_ch = 'ROX'
 
-# derive row/col size from plate_format
-if plate_format.startswith("384"):
-    n_rows, n_cols = 16, 24
-    default_ref = "P24"
-    default_style_idx = 1  # Up–Down default for 384
-else:
-    n_rows, n_cols = 8, 12
-    default_ref = "H12"
-    default_style_idx = 0  # Left–Right default for 96
+def plate_info_auto(plate_format: str) -> tuple[list[str], float]:
+    """
+    UI block: allow user to pick multiple qPOS wells.
+    Defaults:
+      - 384 well: O24, P24
+      - 96 well:  H6, H12
+    Returns (qpos_wells, ref_cq) where ref_cq is mean/median of selected qPOS Cq.
+    """
 
-rows = list(string.ascii_uppercase[:n_rows])
-cols = list(range(1, n_cols + 1))
-all_wells = [f"{r}{c}" for r in rows for c in cols]
+    # Build all wells from plate format
+    if plate_format.startswith("384"):
+        rows = list(string.ascii_uppercase[:16])  # A..P
+        cols = list(range(1, 24 + 1))            # 1..24
+        default_qpos = ["O24", "P24"]
+        default_style_idx = 1
+    else:
+        rows = list(string.ascii_uppercase[:8])   # A..H
+        cols = list(range(1, 12 + 1))            # 1..12
+        default_qpos = ["H6", "H12"]
+        default_style_idx = 0
 
-# make sure default exists
-if default_ref not in all_wells:
-    default_ref = all_wells[-1]
+    all_wells = [f"{r}{c}" for r in rows for c in cols]
+    default_qpos = [w for w in default_qpos if w in all_wells]
+    if not default_qpos:
+        default_qpos = [all_wells[-1]]  # very defensive fallback
+    # Multiselect qPOS wells
+    qpos_wells = st.multiselect(
+        "qPOS (reference) wells",
+        options=all_wells,
+        default=default_qpos,
+        help="Pick one or more wells to serve as qPOS."
+    )
 
-refwell = st.selectbox(
-    "qPOS (reference) well",
-    options=all_wells,
-    index=all_wells.index(default_ref),
-    help="Used to compute relative FRC from its Cq."
-)
+    if len(qpos_wells) == 0:
+        st.warning("Please select at least one qPOS well.")
+        return [], np.nan
+
+    return qpos_wells, all_wells,rows, cols, default_style_idx
+
+qPOSwells, all_wells,rows, cols, default_style_idx = plate_info_auto(plate_format)
+
+qPOSFRC = st.number_input("qPOS well FRC", value=30000, step=100,key = 'qPOS well FRC', help="Desired qPOS well FRC")
+
 
 
 results_file = None
@@ -321,10 +353,9 @@ raw_file = None
 multicomponent_file = None
 combined_file = None
 
-for f in uploaded_files:  # from st.file_uploader
+for f in uploaded_files:
     name = f.name.lower()
     if name.endswith((".xlsx", ".xls")):
-        # candidate for combined export
         combined_file = f
     elif "results" in name and "replicate" not in name and "sample" not in name and "rq" not in name:
         results_file = f
@@ -333,9 +364,10 @@ for f in uploaded_files:  # from st.file_uploader
     elif "multicomponent" in name:
         multicomponent_file = f
 
+
 if combined_file is not None:
     try:
-        results, df, df_m = _load_combined_xlsx(combined_file)
+        results, df, df_m, amp_df = _load_combined_xlsx(combined_file)  # <--- amp_df
         runname = _guess_runname(combined_file.name)
         st.success(f"Loaded combined workbook: {combined_file.name}")
     except Exception as e:
@@ -354,14 +386,19 @@ else:
     results = load_quantstudio(results_file)
     df      = load_quantstudio(raw_file)
     df_m    = load_quantstudio(multicomponent_file)
+
     runname = Path(raw_file.name).stem.split('_Raw Data', 1)[0]
     st.success("All key files loaded successfully!")
-
+    
 # pull the FAM Cq of the reference well
-sub_ref = results[results["Well"].astype(str) == str(refwell)]
-sub_ref_fam = sub_ref[sub_ref["Reporter"].astype(str) == "FAM"]
-ref_vals = pd.to_numeric(sub_ref_fam["Cq"], errors="coerce").dropna().to_numpy()
-ref_cq = float(ref_vals[0]) if ref_vals.size else np.nan
+ref_cq_all = [] 
+for refwell in qPOSwells:
+    sub_ref = results[results["Well"].astype(str) == str(refwell)]
+    sub_ref_fam = sub_ref[sub_ref["Reporter"].astype(str) == "FAM"]
+    ref_vals = pd.to_numeric(sub_ref_fam["Cq"], errors="coerce").dropna().to_numpy()
+    ref_cq = float(ref_vals[0]) if ref_vals.size else np.nan
+    ref_cq_all.append(ref_cq)
+ref_cq = np.nanmean(ref_cq_all)
 
 
 mask = edited_grid.astype(bool)
@@ -553,4 +590,153 @@ for i in range(m.shape[0]):
 cbar.set_label(f"Standard deviation (X4_M4) for first 15 cycles")
 ax.set_title(f"{runname} - std (X4_M4) for first 15 cycles")
 st.pyplot(fig, use_container_width=False)
+
+# ======================
+# Plot Individual Wells
+# ======================
+st.subheader("Plot individual wells")
+
+# Choose default wells: top-2 by avg_full (highest values)
+def _well_to_idx(well: str):
+    # Parse like "A1", "A01", "P24"
+    m = re.match(r'^([A-Za-z]+)\s*0*([0-9]+)$', str(well))
+    if not m:
+        return None
+    r = m.group(1).upper()
+    c = int(m.group(2))
+    if r not in row_ix or c not in col_ix:
+        return None
+    return row_ix[r], col_ix[c]
+
+def _avg_val_for_well(well: str) -> float:
+    idx = _well_to_idx(well)
+    if idx is None:
+        return np.nan
+    i, j = idx
+    v = avg_full[i, j]  # uses your precomputed plate-sized matrix
+    return float(v) if np.isfinite(v) else np.nan
+
+# Build (well, avg_val), keep finite, sort desc, take top-2
+_scored = [(w, _avg_val_for_well(w)) for w in (selected_wells if selected_wells else all_wells)]
+_scored = [(w, v) for (w, v) in _scored if np.isfinite(v)]
+_scored.sort(key=lambda t: t[1], reverse=True)
+
+
+default_wells = [w for (w, _) in _scored[:2]]
+# ---------- Multi-well selection ----------
+well_source = selected_wells if selected_wells else all_wells
+wells_to_plot = st.multiselect(
+    "Choose wells to plot",
+    options=well_source,
+    default=default_wells,  # pick up to 2 by default
+    help="You can select multiple wells; each well will be plotted with its own color."
+)
+
+plot_mode = st.radio(
+    "What to plot?",
+    ["Raw only", "Multicomponent only", "Raw + Multicomponent"],
+    index = 2,
+    horizontal=True,
+    help=(
+        "Raw only: X1_M1 (solid) + X4_M4 (dashed)\n"
+        "Multicomponent only: FAM (solid) + ROX (dashed)\n"
+        "Raw + Multicomponent: exactly four lines per well "
+        "— FAM (solid), X1_M1 (raw, solid), ROX (dashed), X4_M4 (raw, dashed)."
+    )
+)
+
+# Helper to pull series for a given well
+def _extract_series_for_well(well: str):
+    # RAW
+    sub_raw = df[df["Well"].astype(str) == str(well)]
+    cycles_raw = pd.to_numeric(sub_raw.get("Cycle", pd.Series(index=[])), errors="coerce").to_numpy()
+    fam_raw = pd.to_numeric(sub_raw.get(fam_raw_ch, pd.Series(index=[])), errors="coerce").to_numpy()
+    rox_raw = pd.to_numeric(sub_raw.get(rox_raw_ch, pd.Series(index=[])), errors="coerce").to_numpy()
+
+    # MULTICOMPONENT
+    sub_mc = df_m[df_m["Well"].astype(str) == str(well)]
+    cycles_mc = pd.to_numeric(sub_mc.get("Cycle", pd.Series(index=[])), errors="coerce").to_numpy()
+    fam_mc = pd.to_numeric(sub_mc.get(FAM_post_ch, pd.Series(index=[])), errors="coerce").to_numpy()
+    rox_mc = pd.to_numeric(sub_mc.get(ROX_post_ch, pd.Series(index=[])), errors="coerce").to_numpy()
+
+    return (cycles_raw, fam_raw, rox_raw, cycles_mc, fam_mc, rox_mc)
+
+# ---------- Plot Raw / MC / Both (one figure) ----------
+if wells_to_plot:
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    # One distinct color per well from the rc cycle
+    colors = plt.rcParams['axes.prop_cycle'].by_key().get('color', ["C0","C1","C2","C3","C4","C5","C6","C7","C8","C9"])
+
+    # We’ll create two legends:
+    # (1) Style legend (explains solid/dashed and raw vs MC)
+    # (2) Well legend (colored markers with well IDs)
+    style_handles = []
+
+    # Build style legend just once (no data, just line objects)
+    if plot_mode == "Raw only":
+        style_handles = [
+            mlines.Line2D([], [], linestyle="-",  linewidth=1.8, color="black", label="X1_M1 (raw)"),
+            mlines.Line2D([], [], linestyle="--", linewidth=1.8, color="black", label="X4_M4 (raw)"),
+        ]
+    elif plot_mode == "Multicomponent only":
+        style_handles = [
+            mlines.Line2D([], [], linestyle="-",  linewidth=1.8, color="black", label="FAM (MC)"),
+            mlines.Line2D([], [], linestyle="--", linewidth=1.8, color="black", label="ROX (MC)"),
+        ]
+    else:  # Raw + Multicomponent
+        style_handles = [
+            mlines.Line2D([], [], linestyle="-",  linewidth=1.8, color="black", label="FAM (MC)"),
+            mlines.Line2D([], [], linestyle="-",  linewidth=1.8, color="black", alpha=0.35, label="X1_M1 (raw)"),
+            mlines.Line2D([], [], linestyle="--", linewidth=1.8, color="black", label="ROX (MC)"),
+            mlines.Line2D([], [], linestyle="--", linewidth=1.8, color="black", alpha=0.35, label="X4_M4 (raw)"),
+        ]
+
+    well_handles = []
+
+    for k, well in enumerate(wells_to_plot):
+        color = colors[k % len(colors)]
+        (cycles_raw, fam_raw, rox_raw, cycles_mc, fam_mc, rox_mc) = _extract_series_for_well(well)
+
+        if plot_mode == "Raw only":
+            if cycles_raw.size and fam_raw.size:
+                ax.plot(cycles_raw, fam_raw, linestyle="-",  linewidth=1.8, color=color)
+            if cycles_raw.size and rox_raw.size:
+                ax.plot(cycles_raw, rox_raw, linestyle="--", linewidth=1.8, color=color)
+
+        elif plot_mode == "Multicomponent only":
+            if cycles_mc.size and fam_mc.size:
+                ax.plot(cycles_mc, fam_mc, linestyle="-",  linewidth=1.8, color=color)
+            if cycles_mc.size and rox_mc.size:
+                ax.plot(cycles_mc, rox_mc, linestyle="--", linewidth=1.8, color=color)
+
+        else:  # Raw + Multicomponent (exactly 4 lines per well)
+            # MC: FAM solid, ROX dashed (opaque)
+            if cycles_mc.size and fam_mc.size:
+                ax.plot(cycles_mc, fam_mc, linestyle="-",  linewidth=1.8, color=color)
+            if cycles_mc.size and rox_mc.size:
+                ax.plot(cycles_mc, rox_mc, linestyle="--", linewidth=1.8, color=color)
+            # RAW: X1_M1 solid, X4_M4 dashed (faint)
+            if cycles_raw.size and fam_raw.size:
+                ax.plot(cycles_raw, fam_raw, linestyle="-",  linewidth=1.8, color=color, alpha=0.35)
+            if cycles_raw.size and rox_raw.size:
+                ax.plot(cycles_raw, rox_raw, linestyle="--", linewidth=1.8, color=color, alpha=0.35)
+
+        # a colored marker-only handle for the well legend
+        well_handles.append(mlines.Line2D([], [], linestyle="none", marker="o", color=color, label=well))
+
+    ax.set_xlabel("Cycle")
+    ax.set_ylabel("Intensity (a.u.)")
+    ax.set_title(f"{runname} · {plot_mode} · {len(wells_to_plot)} well(s)")
+    ax.grid(True, alpha=0.3)
+
+    # Two legends
+    leg1 = ax.legend(handles=style_handles, title="Trace meaning", loc="upper left", fontsize=8)
+    ax.add_artist(leg1)
+    ax.legend(handles=well_handles, title="Wells", loc="upper right", ncol=1, fontsize=8)
+
+    st.pyplot(fig, use_container_width=True)
+
+else:
+    st.info("Select one or more wells above to plot Raw/Multicomponent traces.")
 
