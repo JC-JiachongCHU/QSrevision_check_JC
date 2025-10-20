@@ -498,6 +498,19 @@ else:  # Up–Down neighbors: A↔B, C↔D, ...
     
 # full-plate NaN matrices
 
+# 1) Build full-plate FRC matrix (NaN where not selected)
+FRC_full = np.full((len(rows), len(cols)), np.nan, dtype=float)
+for rlab in rows:
+    for clab in cols:
+        well = f"{rlab}{clab}"
+        if well in selected_wells:
+            sub_res = results[results["Well"].astype(str) == str(well)]
+            sub_fam = sub_res[sub_res["Reporter"].astype(str) == "FAM"]
+            vals = pd.to_numeric(sub_fam["Cq"], errors="coerce").dropna().to_numpy()
+            Cq = float(vals[0]) if vals.size else np.nan
+            FRC_full[row_ix[rlab], col_ix[clab]] = (
+                30000.0 / (2.0 ** (Cq - ref_cq)) if np.isfinite(Cq) and np.isfinite(ref_cq) else np.nan
+            )
 mid_full = len(cols) // 2
 if replicate_style.startswith("Left"):  # Left–Right (halves)
     left  = FRC_full[:, :mid_full]
@@ -523,6 +536,7 @@ else:  # Up–Down (neighbors)
     pair_color_full = np.nanmax(np.stack([aux_top, aux_bottom], axis=0), axis=0)
     cv_rows_full = [f"{rows[i]}&{rows[i+1]}" for i in range(0, len(rows), 2)]
     cv_cols_full = [str(c) for c in cols]
+    
 X = pair_avg.ravel()
 Y = pair_cv.ravel()
 C = pair_color.ravel()
