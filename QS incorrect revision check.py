@@ -438,7 +438,33 @@ for i, r in enumerate(selected_rows):
 avg_full = np.full((len(rows), len(cols)), np.nan, dtype=float)
 std_full = np.full_like(avg_full, np.nan, dtype=float)
 std_first_der_full = np.full_like(avg_full, np.nan, dtype=float)
+mid_full = len(cols) // 2
 
+if replicate_style.startswith("Left"):  # Left–Right (halves)
+    left  = FRC_full[:, :mid_full]
+    right = FRC_full[:,  mid_full:]
+    stack = np.stack([left, right], axis=0)                 # (2, rows, mid_full)
+    pair_avg_full = np.nanmean(stack, axis=0)               # (rows, mid_full)
+    pair_std_full = np.nanstd(stack, axis=0, ddof=1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        pair_cv_full = (pair_std_full / pair_avg_full) * 100.0
+    # color by the worse (larger) |1-ROX/X4_M4| of the pair using full-plate avg_full
+    aux_left, aux_right = avg_full[:, :mid_full], avg_full[:, mid_full:]
+    pair_color_full = np.nanmax(np.stack([aux_left, aux_right], axis=0), axis=0)
+    cv_rows_full = [str(r) for r in rows]
+    cv_cols_full = [f"{c}&{c+mid_full}" for c in cols[:mid_full]]
+else:  # Up–Down (neighbors)
+    top, bottom = FRC_full[0::2, :], FRC_full[1::2, :]       # (rows/2, cols)
+    stack = np.stack([top, bottom], axis=0)                 # (2, rows/2, cols)
+    pair_avg_full = np.nanmean(stack, axis=0)               # (rows/2, cols)
+    pair_std_full = np.nanstd(stack, axis=0, ddof=1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        pair_cv_full = (pair_std_full / pair_avg_full) * 100.0
+    aux_top, aux_bottom = avg_full[0::2, :], avg_full[1::2, :]
+    pair_color_full = np.nanmax(np.stack([aux_top, aux_bottom], axis=0), axis=0)
+    cv_rows_full = [f"{rows[i]}&{rows[i+1]}" for i in range(0, len(rows), 2)]
+    cv_cols_full = [str(c) for c in cols]
+    
 # quick index maps
 row_ix = {r: i for i, r in enumerate(rows)}
 col_ix = {c: j for j, c in enumerate(cols)}
@@ -484,8 +510,7 @@ if replicate_style.startswith("Left"):
 
     aux_left, aux_right = avg[:, :mid], avg[:, mid:]
     pair_color = np.maximum(aux_left, aux_right)     # (rows, mid)
-    cv_rows = [str(r) for r in rows]  # unchanged
-    cv_cols = [f"{c}&{c+mid}" for c in cols[:mid]]
+
     
 else:  # Up–Down neighbors: A↔B, C↔D, ...
     top, bottom = FRC[0::2, :], FRC[1::2, :]         # (rows/2, cols)
@@ -496,8 +521,7 @@ else:  # Up–Down neighbors: A↔B, C↔D, ...
 
     aux_top, aux_bottom = avg[0::2, :], avg[1::2, :]
     pair_color = np.maximum(aux_top, aux_bottom)  
-    cv_rows = [f"{rows[i]}&{rows[i+1]}" for i in range(0, len(rows), 2)]
-    cv_cols = [str(c) for c in cols]
+
 X = pair_avg.ravel()
 Y = pair_cv.ravel()
 C = pair_color.ravel()
@@ -528,22 +552,21 @@ st.pyplot(fig, use_container_width=False)
 
 vmin_der = st.number_input("Set vmin", value=0, step=1, key="der_vmin")
 vmax_der = st.number_input("Set vmax", value=20, step=1, key="der_vmax")
-m = np.ma.masked_invalid(pair_cv)
+m = np.ma.masked_invalid(pair_cv_full)
 fig, ax = plt.subplots(figsize=(14, 6))
-im = ax.imshow(m, cmap="Reds", aspect="auto",
-               vmin=vmin_der, vmax=vmax_der)
-ax.set_xticks(np.arange(len(cv_cols)))
-ax.set_xticklabels(cv_cols)
-ax.set_yticks(np.arange(len(cv_rows)))
-ax.set_yticklabels(cv_rows)
+im = ax.imshow(m, cmap="Reds", aspect="auto", vmin=vmin_der, vmax=vmax_der)
+ax.set_xticks(np.arange(len(cv_cols_full)))
+ax.set_xticklabels(cv_cols_full)
+ax.set_yticks(np.arange(len(cv_rows_full)))
+ax.set_yticklabels(cv_rows_full)
 # annotate non-masked cells
 for i in range(m.shape[0]):
     for j in range(m.shape[1]):
         if not m.mask[i, j]:
-            ax.text(j, i, f"{m[i, j]:.2f}",
-                    ha="center", va="center", fontsize=5, color="black")
+            ax.text(j, i, f"{m[i, j]:.2f}", ha="center", va="center", fontsize=5, color="black")
 plt.colorbar(im, ax=ax).set_label("FRC_CV")
-ax.set_xlabel("Column"); ax.set_ylabel("Row")
+ax.set_xlabel("Column" if replicate_style.startswith("Left") else "Column")
+ax.set_ylabel("Row" if replicate_style.startswith("Left") else "Row pairs")
 ax.set_title(f"{runname} - FRC_CV")
 st.pyplot(fig, use_container_width=False)
 
