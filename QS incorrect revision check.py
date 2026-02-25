@@ -43,7 +43,7 @@ def load_quantstudio(uploaded_file) -> pd.DataFrame:
         if "Index" in df.columns and "Well" in df.columns:
             df = df.drop(columns=["Index"])
         return df
-
+    
     if suffix == ".csv":
         txt = uploaded_file.getvalue().decode("utf-8", errors="replace")
         # strip blank lines and comment-like prefaces
@@ -93,6 +93,15 @@ def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
         elif cl == "step number":  rename[c] = "Step"
     return df.rename(columns=rename) if rename else df
 
+def _read_first_existing_sheet(file_like, candidates, header=24):
+    last_err = None
+    for s in candidates:
+        try:
+            return pd.read_excel(file_like, sheet_name=s, header=header, engine="openpyxl"), s
+        except Exception as e:
+            last_err = e
+    raise ValueError(f"None of these sheets exist: {candidates}. Last error: {last_err}")
+    
 def _load_combined_xlsx(file_like):
     # Always try to read all three sheets with header row = 25th row (0-indexed 24)
     df    = pd.read_excel(file_like, sheet_name="Raw Data",       header=24, engine="openpyxl")
